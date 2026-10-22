@@ -29,6 +29,12 @@ class BookMetadataSource(
         .build()
 ) {
 
+    /** Kapak indirme kisa timeout'lu: yavas CDN kutuphaneyi bekletmesin. */
+    private val coverClient: OkHttpClient = client.newBuilder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
+        .build()
+
     suspend fun fetch(isbn: String, withCover: Boolean = true): RemoteMeta? = withContext(Dispatchers.IO) {
         // 1) Birincil: Google Books
         val google = runCatching { fromGoogleBooks(isbn) }.getOrNull()
@@ -60,6 +66,55 @@ class BookMetadataSource(
             source = source
         )
     }
+
+    /**
+     * Ayni eserin diger baskilarinin ISBN'leri.
+     * Google Books (baslik + yazar) ve Open Library aramasi birlestirilir.
+     */
+    suspend fun otherEditionIsbns(title: String, authors: String): List<String> =
+        withContext(Dispatchers.IO) {
+            if (title.isBlank()) return@withContext emptyList()
+            val found = LinkedHashSet<String>()
+            val author = authors.substringBefore(',').trim()
+
+            runCatching {
+                val query = buildString {
+                    append("intitle:").append(title.trim())
+                    if (author.isNotBlank()) append(" inauthor:").append(author)
+                }
+                val url = "https://www.googleapis.com/books/v1/volumes?q=" +
+                    java.net.URLEncoder.encode(query, "UTF-8") +
+                    "&maxResults=20&country=US"
+                val items = getJson(url).optJSONArray("items") ?: return@runCatching
+                for (i in 0 until items.length()) {
+                    val ids = items.getJSONObject(i)
+                        .optJSONObject("volumeInfo")
+                        ?.optJSONArray("industryIdentifiers")
+                        ?: continue
+                    for (j in 0 until ids.length()) {
+                        normalizeIsbn(ids.getJSONObject(j).optString("identifier"))?.let { found += it }
+                    }
+                }
+            }
+
+            runCatching {
+                val query = buildString {
+                    append("title:\"").append(title.trim()).append('"')
+                    if (author.isNotBlank()) append(" author:\"").append(author).append('"')
+                }
+                val url = "https://openlibrary.org/search.json?q=" +
+                    java.net.URLEncoder.encode(query, "UTF-8") + "&fields=isbn&limit=5"
+                val docs = getJson(url).optJSONArray("docs") ?: return@runCatching
+                for (i in 0 until docs.length()) {
+                    val isbns = docs.getJSONObject(i).optJSONArray("isbn") ?: continue
+                    for (j in 0 until isbns.length()) {
+                        normalizeIsbn(isbns.optString(j))?.let { found += it }
+                    }
+                }
+            }
+
+            found.take(60).toList()
+        }
 
     private data class Raw(
         val title: String,
@@ -100,7 +155,8 @@ class BookMetadataSource(
         if (title.isBlank()) return null
         return Raw(
             title = title,
-            authors = "",
+            // Open Library baski kaydinda yazar cogu zaman by_statement alaninda
+            authors = json.optString("by_statement").trim(),
             publisher = json.optJSONArray("publishers").joinArray(),
             publishedDate = json.optString("publish_date"),
             pageCount = json.optInt("number_of_pages", 0),
@@ -121,7 +177,7 @@ class BookMetadataSource(
 
     private fun download(url: String): ByteArray {
         val request = Request.Builder().url(url).header("User-Agent", "Kitaplik/1.0").build()
-        client.newCall(request).execute().use { response ->
+        coverClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("HTTP ${response.code} for $url")
             return response.body?.bytes() ?: error("empty body")
         }

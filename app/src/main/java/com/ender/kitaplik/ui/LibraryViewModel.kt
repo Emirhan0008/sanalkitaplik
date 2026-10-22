@@ -30,4 +30,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         repo.addIsbn(isbn, prefill)
 
     suspend fun lookup(isbn: String): com.ender.kitaplik.data.RemoteMeta? = repo.lookup(isbn)
+
+    /** Ayni eserin farkli baskisi kutuphanede var mi? */
+    suspend fun findEdition(isbn: String, meta: com.ender.kitaplik.data.RemoteMeta?): BookEntity? =
+        repo.findEditionMatch(isbn, meta)
 }

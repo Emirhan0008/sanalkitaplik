@@ -13,14 +13,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -31,8 +34,11 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 
 // ---- vintage ceviz paleti ----
@@ -514,6 +520,51 @@ fun BookSpine(
                         .height(1.5.dp)
                         .background(GoldBand.copy(alpha = 0.7f))
                 )
+            }
+        }
+
+        // sirt yazisi: cok kucuk baslik + yazar (gercek kitaplarda altin yazi)
+        run {
+            val spineTitle = book.title.trim()
+            if (spineTitle.isNotBlank()) {
+                val author = book.authors.substringBefore(',').trim()
+                val ink = if (book.isReal) {
+                    GoldBright.copy(alpha = 0.92f)
+                } else {
+                    Color(0xFFF3E6C8).copy(alpha = 0.34f)
+                }
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .requiredWidth((spineHeight - 30.dp).coerceAtLeast(20.dp))
+                        .rotate(-90f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = spineTitle,
+                        color = ink,
+                        fontSize = if (book.isReal) 6.sp else 5.5.sp,
+                        fontFamily = FontFamily.Serif,
+                        lineHeight = 7.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (author.isNotBlank()) {
+                        Text(
+                            text = "· $author",
+                            color = ink.copy(alpha = ink.alpha * 0.8f),
+                            fontSize = if (book.isReal) 4.5.sp else 4.sp,
+                            fontFamily = FontFamily.Serif,
+                            lineHeight = 6.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
 

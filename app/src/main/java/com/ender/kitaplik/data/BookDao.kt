@@ -16,6 +16,12 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE isbn = :isbn LIMIT 1")
     suspend fun findByIsbn(isbn: String): BookEntity?
 
+    @Query("SELECT * FROM books")
+    suspend fun getAll(): List<BookEntity>
+
+    @Query("SELECT * FROM books WHERE isbn IN (:isbns)")
+    suspend fun findByIsbns(isbns: List<String>): List<BookEntity>
+
     @Query("SELECT COUNT(*) FROM books")
     suspend fun count(): Int
 

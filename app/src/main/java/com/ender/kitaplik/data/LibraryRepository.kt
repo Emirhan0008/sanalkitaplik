@@ -62,6 +62,29 @@ class LibraryRepository(
     suspend fun lookup(isbn: String): RemoteMeta? =
         runCatching { metadataSource.fetch(isbn, withCover = true) }.getOrNull()
 
+    /**
+     * ISBN kutuphanede yok ama ayni eserin baska baskisi olabilir.
+     * 1) Yerel kayitlarla baslik/yazar benzerligi
+     * 2) Dis kaynaklardan ayni eserin diger ISBN'leri -> yerel ISBN karsilastirmasi
+     */
+    suspend fun findEditionMatch(isbn: String, meta: RemoteMeta?): BookEntity? {
+        if (meta == null || meta.title.isBlank()) return null
+
+        dao.getAll()
+            .firstOrNull { book ->
+                book.isbn != isbn &&
+                    WorkMatcher.sameWork(meta.title, meta.authors, book.title, book.authors)
+            }
+            ?.let { return it }
+
+        val others = runCatching { metadataSource.otherEditionIsbns(meta.title, meta.authors) }
+            .getOrDefault(emptyList())
+            .filter { it != isbn }
+        if (others.isEmpty()) return null
+
+        return dao.findByIsbns(others).firstOrNull()
+    }
+
     suspend fun retryPending() {
         scope.launch {
             dao.pendingEnrichment().forEach { enrich(it.isbn) }

@@ -7,6 +7,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -92,7 +94,10 @@ private enum class Phase { Idle, Flying, Detail, Closing }
 private data class PendingLookup(
     val isbn: String,
     val loading: Boolean,
-    val meta: RemoteMeta?
+    val meta: RemoteMeta?,
+    /** Ayni eserin kutuphanede bulunan baska baskisi. */
+    val match: BookEntity? = null,
+    val checkingEditions: Boolean = false
 )
 
 private fun Rect.snapped(): Rect = Rect(
@@ -218,6 +223,15 @@ fun LibraryRoot() {
                     pending = PendingLookup(isbn = isbn, loading = true, meta = null)
                     val meta = vm.lookup(isbn)
                     pending = PendingLookup(isbn = isbn, loading = false, meta = meta)
+
+                    // ISBN farkli olsa da ayni eserin baska baskisi rafta olabilir
+                    if (meta != null) {
+                        pending = pending?.copy(checkingEditions = true)
+                        val match = vm.findEdition(isbn, meta)
+                        pending?.takeIf { it.isbn == isbn }?.let {
+                            pending = it.copy(match = match, checkingEditions = false)
+                        }
+                    }
                 }
             }
         }
@@ -325,6 +339,14 @@ fun LibraryRoot() {
             AddBookSheet(
                 lookup = lookup,
                 onDismiss = { pending = null },
+                onOpenMatch = { entity ->
+                    pending = null
+                    tab = 0
+                    scope.launch {
+                        delay(220)
+                        shelfByIsbn[entity.isbn]?.let(reveal)
+                    }
+                },
                 onAdd = {
                     pending = null
                     scope.launch {
@@ -483,6 +505,7 @@ private fun BookListTab(books: List<BookEntity>, onBookClick: (BookEntity) -> Un
 private fun AddBookSheet(
     lookup: PendingLookup,
     onDismiss: () -> Unit,
+    onOpenMatch: (BookEntity) -> Unit,
     onAdd: () -> Unit
 ) {
     ModalBottomSheet(
@@ -494,11 +517,79 @@ private fun AddBookSheet(
         Column(
             Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 28.dp)
                 .padding(bottom = 40.dp)
         ) {
-            Text("Kütüphanende yok", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                text = if (lookup.match != null) "Bu baskı rafta yok" else "Kütüphanende yok",
+                style = MaterialTheme.typography.headlineSmall
+            )
             Spacer(Modifier.height(14.dp))
+
+            // Ayni eserin baska baskisi zaten kutuphanede
+            lookup.match?.let { existing ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = "Aynı eserin başka bir baskısı kütüphanende",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BookCover(
+                            book = existing,
+                            modifier = Modifier.width(52.dp).aspectRatio(2f / 3f),
+                            corner = 6.dp,
+                            compact = true
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = existing.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (existing.authors.isNotBlank()) {
+                                Text(
+                                    text = existing.authors,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = listOfNotNull(
+                                    existing.publishedDate.takeIf { it.isNotBlank() },
+                                    existing.publisher.takeIf { it.isNotBlank() },
+                                    "ISBN ${existing.isbn}"
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    TextButton(
+                        onClick = { onOpenMatch(existing) },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) {
+                        Text("Mevcut baskıyı aç")
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+            }
 
             val meta = lookup.meta
             when {
@@ -583,6 +674,23 @@ private fun AddBookSheet(
                 }
             }
 
+            if (lookup.checkingEditions) {
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = "Aynı eserin diğer baskıları kontrol ediliyor…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             Spacer(Modifier.height(16.dp))
             Text(
                 text = "ISBN ${lookup.isbn}",
@@ -595,7 +703,13 @@ private fun AddBookSheet(
                 enabled = !lookup.loading,
                 modifier = Modifier.fillMaxWidth().height(54.dp)
             ) {
-                Text(if (meta != null) "Rafa ekle" else "ISBN ile ekle")
+                Text(
+                    when {
+                        lookup.match != null -> "Bu baskıyı yine de ekle"
+                        meta != null -> "Rafa ekle"
+                        else -> "ISBN ile ekle"
+                    }
+                )
             }
         }
     }

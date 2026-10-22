@@ -1,0 +1,30 @@
+package com.ender.kitaplik.ui
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.ender.kitaplik.KitaplikApp
+import com.ender.kitaplik.data.BookEntity
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+class LibraryViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val repo = (app as KitaplikApp).container.repository
+
+    val books: StateFlow<List<BookEntity>> = repo.books
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    init {
+        viewModelScope.launch {
+            repo.seedIfEmpty()
+            repo.retryPending()
+        }
+    }
+
+    suspend fun find(isbn: String): BookEntity? = repo.find(isbn)
+
+    suspend fun add(isbn: String): Boolean = repo.addIsbn(isbn)
+}

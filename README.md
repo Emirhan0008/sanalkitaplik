@@ -86,6 +86,7 @@ Open Library'ye geçer; geçici Google kesintileri taramayı yavaşlatmaz.
 
 ## Notlar
 
+- Yol haritası ve sıradaki fazlar: [ROADMAP.md](ROADMAP.md)
 - Debug derlemede veritabanı boşsa 9 örnek kitap eklenir (gerçek barkodlarla test için).
 - Raf görselindeki 180 sırtın geri kalanı dekoratiftir; gerçek kitaplar `isReal` ile işaretlenir.
 - Sıralı toplu içe aktarma (chatbot/JSON) henüz yok; `LibraryRepository.addIsbn` üzerinden eklenebilir.

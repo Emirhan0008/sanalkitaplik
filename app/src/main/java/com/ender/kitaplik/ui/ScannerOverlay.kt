@@ -11,6 +11,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -24,16 +25,19 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FlashOff
 import androidx.compose.material.icons.rounded.FlashOn
+import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -69,6 +73,7 @@ import java.util.concurrent.Executors
 @Composable
 fun ScannerOverlay(
     onClose: () -> Unit,
+    onManualEntry: () -> Unit,
     onIsbn: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -127,16 +132,34 @@ fun ScannerOverlay(
         // karartma + tarama cercevesi
         ScanChrome()
 
-        Text(
-            text = "Kitabın arkasındaki barkodu çerçeveye hizala",
-            color = Color(0xCCF3E9DA),
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 48.dp, start = 32.dp, end = 32.dp)
-        )
+                .padding(bottom = 36.dp, start = 32.dp, end = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Kitabın arkasındaki barkodu çerçeveye hizala",
+                color = Color(0xCCF3E9DA),
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(14.dp))
+            OutlinedButton(
+                onClick = onManualEntry,
+                border = BorderStroke(1.dp, Color(0x66F3E9DA)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF3E9DA))
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Keyboard,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Elle ISBN gir")
+            }
+        }
 
         IconButton(
             onClick = onClose,

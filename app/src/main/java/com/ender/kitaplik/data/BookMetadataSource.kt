@@ -14,7 +14,8 @@ data class RemoteMeta(
     val publishedDate: String,
     val pageCount: Int,
     val description: String,
-    val coverBytes: ByteArray?
+    val coverBytes: ByteArray?,
+    val source: String = ""
 )
 
 /**
@@ -28,17 +29,22 @@ class BookMetadataSource(
         .build()
 ) {
 
-    suspend fun fetch(isbn: String): RemoteMeta? = withContext(Dispatchers.IO) {
+    suspend fun fetch(isbn: String, withCover: Boolean = true): RemoteMeta? = withContext(Dispatchers.IO) {
+        // 1) Birincil: Google Books
         val google = runCatching { fromGoogleBooks(isbn) }.getOrNull()
+        // 2) Yedek: Google bos/eksik donerse Open Library
         val needsMore = google == null || google.title.isBlank()
         val openLibrary = if (needsMore) {
             runCatching { fromOpenLibrary(isbn) }.getOrNull()
         } else null
 
         val base = google ?: openLibrary ?: return@withContext null
+        val source = if (google != null && google.title.isNotBlank()) "Google Books" else "Open Library"
 
         // Kapak: Google thumbnail -> Open Library kapagi (biri 404/bozuksa digerine dus)
-        val candidates = listOfNotNull(google?.coverUrl, openLibraryCoverUrl(isbn)).distinct()
+        val candidates = if (withCover) {
+            listOfNotNull(google?.coverUrl, openLibraryCoverUrl(isbn)).distinct()
+        } else emptyList()
         val coverBytes = candidates.firstNotNullOfOrNull { url ->
             runCatching { download(url) }.getOrNull()?.takeIf { it.size > 2_000 }
         }
@@ -50,7 +56,8 @@ class BookMetadataSource(
             publishedDate = base.publishedDate,
             pageCount = base.pageCount,
             description = base.description,
-            coverBytes = coverBytes
+            coverBytes = coverBytes,
+            source = source
         )
     }
 

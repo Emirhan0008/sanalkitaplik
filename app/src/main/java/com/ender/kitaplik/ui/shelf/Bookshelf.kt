@@ -25,41 +25,46 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
-// ---- vintage palet ----
-private val ShelfBack = Color(0xFFEFE1C6)
-private val ShelfBackDeep = Color(0xFFE2D0B0)
-private val FrameDark = Color(0xFF4A301C)
-private val FrameMid = Color(0xFF6B4A2F)
-private val FrameLight = Color(0xFF8A6440)
-private val FrameHighlight = Color(0xFFA07A52)
-private val PlankLight = Color(0xFF7E5A38)
-private val PlankMid = Color(0xFF664628)
-private val PlankDeep = Color(0xFF4A3119)
-private val GoldBand = Color(0xFFC8A24A)
-private val GoldBright = Color(0xFFE3C77E)
+// ---- vintage ceviz paleti ----
+private val ShelfBack = Color(0xFFE7D6B6)
+private val ShelfBackDeep = Color(0xFFD8C3A0)
+private val FrameDark = Color(0xFF35210F)
+private val FrameDeep = Color(0xFF43290F)
+private val FrameMid = Color(0xFF5C3B1D)
+private val FrameLight = Color(0xFF7A5230)
+private val FrameHighlight = Color(0xFF96703F)
+private val PlankLight = Color(0xFF8A6438)
+private val PlankMid = Color(0xFF6B4A26)
+private val PlankDeep = Color(0xFF48301A)
+private val GoldBand = Color(0xFFC9A24A)
+private val GoldBright = Color(0xFFE8CD86)
+private val GoldDeep = Color(0xFF8E6C24)
 
-/** Eskitilmis, soluk cilt renkleri. */
+/** Doygun, eskitilmis deri cilt renkleri. */
 private val SpineColors = listOf(
-    0xFF8E3B2F, 0xFF7A3B4A, 0xFF4A5A46, 0xFF3E4E5E, 0xFF8A6A32,
-    0xFF5B4636, 0xFF6B3B2E, 0xFF45524A, 0xFF7A5A43, 0xFF3F3B52,
-    0xFF94402F, 0xFF2F4A54, 0xFF6E5130, 0xFF553A2C, 0xFF7A4A52,
-    0xFF3A4A3E, 0xFF8A5A34, 0xFF4E4230, 0xFF5E4A62, 0xFF6A4A3A
+    0xFF8B2E2E, 0xFF2F5B3E, 0xFF2C3E6B, 0xFFB07B24, 0xFF6B1F2A,
+    0xFF24615C, 0xFF5B2F4E, 0xFFA34A22, 0xFF5E5A24, 0xFF6B4326,
+    0xFF3A4E63, 0xFF7A3A2A, 0xFF44455C, 0xFF8A5A1E, 0xFF4E3A2A,
+    0xFF74303C, 0xFF31544A, 0xFF5A4A2E, 0xFF3F3A55, 0xFF8C4A2E
 )
 
 private val LabelColors = listOf(
-    0xFFD9C08A, 0xFFE8D9B5, 0xFFC8A24A, 0xFFE5D6BC, 0xFFCDB588
+    0xFFD9BE7E, 0xFFE7D6B0, 0xFFC9A24A, 0xFFDCC596, 0xFFB99B5E
 )
 
 /**
  * Vintage kitaplik: kaydirmasiz, tum satirlar tek ekranda.
- * Ahsap kasa + damar dokusu + sikisik dizilmis sirtlar.
+ * Oymali ceviz kasa (ust tac, yan stil, alt baza) + sikisik sirtlar.
  */
 @Composable
 fun Bookshelf(
@@ -72,25 +77,18 @@ fun Bookshelf(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(3.dp))
             .background(
                 Brush.horizontalGradient(
                     listOf(FrameDark, FrameMid, FrameLight, FrameMid, FrameDark)
                 )
             )
     ) {
-        WoodGrain(Modifier.fillMaxSize(), vertical = true, alpha = 0.13f)
+        WoodGrain(Modifier.fillMaxSize(), vertical = true, alpha = 0.15f)
+        SideStiles(Modifier.fillMaxSize())
 
-        Column(Modifier.fillMaxSize().padding(horizontal = 9.dp)) {
-            // ust kasa kenari
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(14.dp)
-                    .background(Brush.verticalGradient(listOf(FrameHighlight, FrameLight, FrameMid)))
-            ) {
-                WoodGrain(Modifier.fillMaxSize(), vertical = false, alpha = 0.16f)
-            }
+        Column(Modifier.fillMaxSize().padding(horizontal = 13.dp)) {
+            Crown(Modifier.fillMaxWidth())
 
             Column(Modifier.fillMaxWidth().weight(1f)) {
                 rows.forEach { row ->
@@ -104,16 +102,125 @@ fun Bookshelf(
                 }
             }
 
-            // alt kasa kenari
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(18.dp)
-                    .background(Brush.verticalGradient(listOf(FrameMid, FrameLight, FrameDark)))
-            ) {
-                WoodGrain(Modifier.fillMaxSize(), vertical = false, alpha = 0.16f)
-            }
+            Plinth(Modifier.fillMaxWidth())
         }
+    }
+}
+
+@Composable
+private fun Crown(modifier: Modifier) {
+    Column(modifier) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(5.dp)
+                .background(Brush.verticalGradient(listOf(FrameHighlight, FrameLight)))
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(15.dp)
+                .background(Brush.verticalGradient(listOf(FrameLight, FrameMid)))
+        ) {
+            BeadBand(Modifier.fillMaxSize())
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .background(Brush.verticalGradient(listOf(FrameDark, Color(0xFF24140A))))
+        )
+    }
+}
+
+@Composable
+private fun Plinth(modifier: Modifier) {
+    Column(modifier) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .background(Brush.verticalGradient(listOf(Color(0xFF24140A), FrameDark)))
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(18.dp)
+                .background(Brush.verticalGradient(listOf(FrameMid, FrameLight, FrameMid)))
+        ) {
+            BeadBand(Modifier.fillMaxSize())
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .background(Brush.verticalGradient(listOf(FrameLight, FrameDark)))
+        )
+    }
+}
+
+/** Oyma boncuk/damla dizisi. */
+@Composable
+private fun BeadBand(modifier: Modifier) {
+    Canvas(modifier) {
+        val step = 26.dp.toPx()
+        val radius = 3.4.dp.toPx()
+        val cy = size.height / 2f
+        var x = step / 2f
+        while (x < size.width) {
+            val diamond = Path().apply {
+                moveTo(x, cy - radius)
+                lineTo(x + radius, cy)
+                lineTo(x, cy + radius)
+                lineTo(x - radius, cy)
+                close()
+            }
+            drawPath(diamond, GoldDeep)
+            val inner = Path().apply {
+                moveTo(x, cy - radius * 0.55f)
+                lineTo(x + radius * 0.55f, cy)
+                lineTo(x, cy + radius * 0.55f)
+                lineTo(x - radius * 0.55f, cy)
+                close()
+            }
+            drawPath(inner, GoldBand)
+            x += step
+        }
+    }
+}
+
+/** Yan stillerdeki oyma kanallar. */
+@Composable
+private fun SideStiles(modifier: Modifier) {
+    Canvas(modifier) {
+        val dark = Color(0xFF231407).copy(alpha = 0.55f)
+        val light = Color(0xFFA57B48).copy(alpha = 0.45f)
+        val groove = 4.dp.toPx()
+        var x = 3.dp.toPx()
+        repeat(2) {
+            drawLine(dark, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.5f)
+            drawLine(light, Offset(x + 1.6f, 0f), Offset(x + 1.6f, size.height), strokeWidth = 1.2f)
+            x += groove
+        }
+        var rx = size.width - 3.dp.toPx()
+        repeat(2) {
+            drawLine(dark, Offset(rx, 0f), Offset(rx, size.height), strokeWidth = 2.5f)
+            drawLine(light, Offset(rx - 1.6f, 0f), Offset(rx - 1.6f, size.height), strokeWidth = 1.2f)
+            rx -= groove
+        }
+        // altin ince cizgi
+        drawLine(
+            GoldBand.copy(alpha = 0.35f),
+            Offset(11.dp.toPx(), 0f),
+            Offset(11.dp.toPx(), size.height),
+            strokeWidth = 1f
+        )
+        drawLine(
+            GoldBand.copy(alpha = 0.35f),
+            Offset(size.width - 11.dp.toPx(), 0f),
+            Offset(size.width - 11.dp.toPx(), size.height),
+            strokeWidth = 1f
+        )
     }
 }
 
@@ -121,7 +228,7 @@ fun Bookshelf(
 private fun WoodGrain(modifier: Modifier, vertical: Boolean, alpha: Float) {
     Canvas(modifier) {
         val step = 7f
-        val color = Color(0xFF2B1B0F).copy(alpha = alpha)
+        val color = Color(0xFF1F1106).copy(alpha = alpha)
         if (vertical) {
             var x = 0f
             while (x < size.width) {
@@ -175,44 +282,53 @@ private fun ShelfRowView(
                             onClick = { if (book.isReal) onRealBookClick(book) },
                             onBounds = { rect -> if (book.isReal) onBounds(book, rect) },
                             heightDpOverride = contentHeight * factor,
-                            interactive = interactive
+                            interactive = interactive,
+                            fillWidth = true,
+                            modifier = Modifier.weight(book.widthDp.coerceAtLeast(2f))
                         )
                     }
                 }
 
-                // rafin ic golgesi
+                // rafin ic golgesi (kitap arkalarinda)
                 Box(
                     Modifier
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color(0x1A21140A), Color.Transparent, Color(0x1421140A))
+                                listOf(Color(0x2E21140A), Color(0x0821140A), Color(0x1F21140A))
                             )
                         )
                 )
             }
         }
 
-        // raf tahtasi
+        // raf tahtasi (profilli)
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(15.dp)
-                .background(Brush.verticalGradient(listOf(PlankLight, PlankMid, PlankDeep)))
+                .height(16.dp)
+                .background(Brush.verticalGradient(listOf(PlankLight, PlankMid, PlankDeep, PlankMid)))
         ) {
-            WoodGrain(Modifier.fillMaxSize(), vertical = false, alpha = 0.22f)
+            WoodGrain(Modifier.fillMaxSize(), vertical = false, alpha = 0.24f)
             Box(
                 Modifier
                     .fillMaxWidth()
                     .height(2.dp)
-                    .background(Color(0x66E8CFA4))
+                    .background(Color(0x88E8CFA4))
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.5.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(GoldDeep.copy(alpha = 0.45f))
             )
         }
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(5.dp)
-                .background(Brush.verticalGradient(listOf(Color(0x33211409), Color(0x00000000))))
+                .background(Brush.verticalGradient(listOf(Color(0x40211409), Color(0x00000000))))
         )
     }
 }
@@ -224,37 +340,52 @@ fun BookSpine(
     onBounds: (Rect) -> Unit,
     modifier: Modifier = Modifier,
     heightDpOverride: Dp? = null,
-    interactive: Boolean = true
+    interactive: Boolean = true,
+    fillWidth: Boolean = false
 ) {
     val seed = abs(book.colorSeed) % SpineColors.size
     val base = Color(SpineColors[seed])
     val labelColor = Color(LabelColors[(seed / 7) % LabelColors.size])
-    val shade = base.copy(alpha = 0.34f).compositeOver(Color.Black)
-    val light = base.copy(alpha = 0.16f).compositeOver(Color(0xFFE8DCC0))
+    val shade = base.copy(alpha = 0.38f).compositeOver(Color.Black)
+    val light = base.copy(alpha = 0.18f).compositeOver(Color(0xFFE8DCC0))
     val spineHeight = heightDpOverride ?: book.heightDp.dp
+    val tilt = if (book.isReal) 0f else book.tiltDeg
+    val budget = if (book.isReal) 0f else book.tiltBudgetDp.coerceAtLeast(0f)
 
     Box(
         modifier = modifier
-            .width(book.widthDp.dp)
+            .then(
+                if (fillWidth) Modifier.fillMaxWidth()
+                else Modifier.width(book.widthDp.dp)
+            )
             .height(spineHeight)
+            .padding(
+                start = if (tilt < 0f) budget.dp else 0.dp,
+                end = if (tilt > 0f) budget.dp else 0.dp
+            )
+            .graphicsLayer {
+                rotationZ = tilt
+                transformOrigin = TransformOrigin(0.5f, 1f)
+            }
             .onGloballyPositioned { onBounds(it.boundsInRoot()) }
             .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
             .background(base)
             .then(if (book.isReal && interactive) Modifier.clickable { onClick() } else Modifier)
     ) {
-        // yaslanmis cilt: kenarlar mat, ortada hafif eskitme
+        // cilt yuzeyi: ust isik, alt golge
         Box(
             Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color(0x1FFFFFFF),
-                        0.25f to Color(0x00FFFFFF),
-                        0.85f to Color(0x14000000),
-                        1f to Color(0x33000000)
+                        0f to Color(0x24FFFFFF),
+                        0.18f to Color(0x00FFFFFF),
+                        0.82f to Color(0x12000000),
+                        1f to Color(0x3D000000)
                     )
                 )
         )
+        // yan bombeleri
         Box(
             Modifier
                 .fillMaxHeight()
@@ -270,29 +401,119 @@ fun BookSpine(
                 .background(light)
         )
 
-        val decoType = (seed / 13) % 4
+        val decoType = (seed / 5) % 5
+        val labelHeight = (book.heightDp * 0.11f).dp
+
+        // ust/alt altin seritler (her ciltte)
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 7.dp)
+                .fillMaxWidth()
+                .height(1.5.dp)
+                .background(GoldBand.copy(alpha = 0.55f))
+        )
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 7.dp)
+                .fillMaxWidth()
+                .height(1.5.dp)
+                .background(GoldBand.copy(alpha = 0.55f))
+        )
+
         when (decoType) {
             0 -> {
-                GoldLine(top = 12.dp)
-                GoldLine(bottom = 12.dp)
+                // cift etiket
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 16.dp)
+                        .fillMaxWidth(0.52f)
+                        .height(labelHeight)
+                        .background(labelColor.copy(alpha = 0.85f), RoundedCornerShape(1.dp))
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 20.dp)
+                        .fillMaxWidth(0.42f)
+                        .height(labelHeight * 0.7f)
+                        .background(labelColor.copy(alpha = 0.55f), RoundedCornerShape(1.dp))
+                )
             }
             1 -> {
-                LabelBlock(alignTop = true, top = 16.dp, widthFraction = 0.5f, heightFraction = 0.11f, color = labelColor)
-                GoldLine(bottom = 14.dp)
+                // orta rozet + ince cizgiler
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .size(width = 9.dp, height = 9.dp)
+                        .graphicsLayer { rotationZ = 45f }
+                        .background(GoldBand.copy(alpha = 0.8f))
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 22.dp)
+                        .fillMaxWidth(0.45f)
+                        .height(1.5.dp)
+                        .background(GoldBand.copy(alpha = 0.6f))
+                )
             }
             2 -> {
-                LabelBlock(alignTop = false, bottom = 20.dp, widthFraction = 0.55f, heightFraction = 0.15f, color = labelColor)
-                GoldLine(top = 13.dp)
+                // uzun etiket
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 22.dp)
+                        .fillMaxWidth(0.62f)
+                        .height(labelHeight * 1.4f)
+                        .background(labelColor.copy(alpha = 0.82f), RoundedCornerShape(1.dp))
+                )
             }
-            else -> {
+            3 -> {
+                // uc ince serit
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 18.dp)
+                        .fillMaxWidth()
+                        .height(1.2.dp)
+                        .background(GoldBand.copy(alpha = 0.45f))
+                )
                 Box(
                     Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
-                        .height(2.dp)
+                        .height(1.2.dp)
                         .background(GoldBand.copy(alpha = 0.45f))
                 )
-                LabelBlock(alignTop = true, top = 12.dp, widthFraction = 0.42f, heightFraction = 0.08f, color = labelColor)
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 18.dp)
+                        .fillMaxWidth()
+                        .height(1.2.dp)
+                        .background(GoldBand.copy(alpha = 0.45f))
+                )
+            }
+            else -> {
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 16.dp)
+                        .fillMaxWidth(0.46f)
+                        .height(labelHeight * 0.9f)
+                        .background(labelColor.copy(alpha = 0.6f), RoundedCornerShape(1.dp))
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp)
+                        .fillMaxWidth(0.3f)
+                        .height(1.5.dp)
+                        .background(GoldBand.copy(alpha = 0.7f))
+                )
             }
         }
 
@@ -314,32 +535,3 @@ fun BookSpine(
         }
     }
 }
-
-@Composable
-private fun GoldLine(top: Dp = 0.dp, bottom: Dp = 0.dp) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(2.5.dp)
-            .background(GoldBand.copy(alpha = 0.75f))
-    )
-}
-
-@Composable
-private fun LabelBlock(
-    alignTop: Boolean,
-    top: Dp = 0.dp,
-    bottom: Dp = 0.dp,
-    widthFraction: Float,
-    heightFraction: Float,
-    color: Color
-) {
-    Box(
-        Modifier
-            .fillMaxWidth(widthFraction)
-            .height(0.dp)
-            .background(Color.Transparent)
-    )
-}
-
-private fun Modifier.unused() = this

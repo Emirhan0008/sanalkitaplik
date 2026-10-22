@@ -1,4 +1,4 @@
-# Ender'in Kütüphanesi
+# Ender Kütüphane
 
 Android (Kotlin + Jetpack Compose) kişisel kütüphane uygulaması.
 
@@ -17,10 +17,15 @@ Sağ alttaki **Tara** düğmesi barkod tarayıcısını açar (CameraX + ML Kit,
 ## Akış
 
 1. Barkod okunur → EAN-13/ISBN-10 doğrulanır ve ISBN-13'e normalize edilir.
-2. Kitap Room veritabanında varsa: raf sekmesine dönülür, sırtın ekran koordinatı alınır,
+2. Kamera çalışmazsa/okuyamazsa: tarayıcıdaki **Elle ISBN gir** düğmesiyle numara yazılır
+   (canlı doğrulama: geçerli/geçersiz ISBN geri bildirimi).
+3. Kitap Room veritabanında varsa: raf sekmesine dönülür, sırtın ekran koordinatı alınır,
    `Animatable` ile sırt dışarı çıkar → kendi ekseninde döner → tam ekran kapağa dönüşür.
-3. Kitap yoksa: alt sayfa "Kütüphanende yok" + **Rafa ekle**.
-   Kayıt anında oluşur (çevrimdışı çalışır), kapak/künye arka planda internetten gelir.
+4. Kitap yoksa: **önce Google Books API**, `totalItems: 0` ya da eksik künye dönerse
+   **Open Library** sorgulanır. Bulunan künye kapak önizlemesi + kaynak etiketiyle gösterilir;
+   "Rafa ekle" ile kayıt anında oluşur. Hiçbiri bulunamazsa yine de ISBN ile eklenir,
+   bilgiler arka planda tamamlanır (çevrimdışı çalışır).
+
 
 ## Katmanlar
 

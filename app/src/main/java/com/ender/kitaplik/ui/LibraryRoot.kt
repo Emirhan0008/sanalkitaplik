@@ -26,25 +26,33 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -62,10 +70,12 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ender.kitaplik.data.BookEntity
+import com.ender.kitaplik.data.RemoteMeta
 import com.ender.kitaplik.data.normalizeIsbn
 import com.ender.kitaplik.ui.shelf.Bookshelf
 import com.ender.kitaplik.ui.shelf.ShelfBook
@@ -78,6 +88,12 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private enum class Phase { Idle, Flying, Detail, Closing }
+
+private data class PendingLookup(
+    val isbn: String,
+    val loading: Boolean,
+    val meta: RemoteMeta?
+)
 
 private fun Rect.snapped(): Rect = Rect(
     left = left.roundToInt().toFloat(),
@@ -97,7 +113,8 @@ fun LibraryRoot() {
 
     var tab by rememberSaveable { mutableStateOf(0) }
     var scannerOpen by rememberSaveable { mutableStateOf(false) }
-    var unknownIsbn by remember { mutableStateOf<String?>(null) }
+    var manualEntry by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<PendingLookup?>(null) }
 
     val bounds = remember { mutableStateMapOf<String, Rect>() }
     var flightBook by remember { mutableStateOf<ShelfBook?>(null) }
@@ -189,6 +206,7 @@ fun LibraryRoot() {
             scope.launch { snackbarHost.showSnackbar("Bu barkod bir kitap ISBN'i değil") }
         } else {
             scannerOpen = false
+            manualEntry = false
             scope.launch {
                 val found = vm.find(isbn)
                 if (found != null) {
@@ -196,15 +214,19 @@ fun LibraryRoot() {
                     delay(200)
                     shelfByIsbn[found.isbn]?.let(reveal)
                 } else {
-                    unknownIsbn = isbn
+                    // Kutuphanede yok: once Google Books, olmazsa Open Library
+                    pending = PendingLookup(isbn = isbn, loading = true, meta = null)
+                    val meta = vm.lookup(isbn)
+                    pending = PendingLookup(isbn = isbn, loading = false, meta = meta)
                 }
             }
         }
     }
 
-    BackHandler(enabled = phase != Phase.Idle || scannerOpen || unknownIsbn != null) {
+    BackHandler(enabled = phase != Phase.Idle || scannerOpen || pending != null || manualEntry) {
         when {
-            unknownIsbn != null -> unknownIsbn = null
+            pending != null -> pending = null
+            manualEntry -> manualEntry = false
             scannerOpen -> scannerOpen = false
             phase == Phase.Flying || phase == Phase.Closing -> {
                 animJob?.cancel()
@@ -229,23 +251,16 @@ fun LibraryRoot() {
                 if (phase == Phase.Idle && !scannerOpen) {
                     LibraryBar(tab = tab, onTab = { tab = it })
                 }
-            },
-            floatingActionButton = {
-                if (phase == Phase.Idle && !scannerOpen && tab == 0) {
-                    ExtendedFloatingActionButton(
-                        onClick = { scannerOpen = true },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        icon = { Icon(Icons.Rounded.QrCodeScanner, contentDescription = null) },
-                        text = { Text("Tara") }
-                    )
-                }
             }
         ) { innerPadding ->
             Column(Modifier.fillMaxSize().padding(innerPadding)) {
                 when (tab) {
                     0 -> {
-                        ShelfHeader(realCount = books.size, spineCount = shelfRows.sumOf { it.books.size })
+                        ShelfHeader(
+                            realCount = books.size,
+                            spineCount = shelfRows.sumOf { it.books.size },
+                            onScan = { scannerOpen = true }
+                        )
                         Bookshelf(
                             rows = shelfRows,
                             interactive = phase == Phase.Idle,
@@ -291,21 +306,31 @@ fun LibraryRoot() {
         if (scannerOpen) {
             ScannerOverlay(
                 onClose = { scannerOpen = false },
+                onManualEntry = {
+                    scannerOpen = false
+                    manualEntry = true
+                },
                 onIsbn = handleScan
             )
         }
 
-        unknownIsbn?.let { isbn ->
+        if (manualEntry) {
+            ManualIsbnDialog(
+                onDismiss = { manualEntry = false },
+                onSubmit = { isbn -> handleScan(isbn) }
+            )
+        }
+
+        pending?.let { lookup ->
             AddBookSheet(
-                isbn = isbn,
-                onDismiss = { unknownIsbn = null },
+                lookup = lookup,
+                onDismiss = { pending = null },
                 onAdd = {
-                    unknownIsbn = null
+                    pending = null
                     scope.launch {
-                        val added = vm.add(isbn)
+                        val added = vm.add(lookup.isbn, lookup.meta)
                         snackbarHost.showSnackbar(
-                            if (added) "Rafa eklendi · kapak birazdan gelir"
-                            else "Bu kitap zaten kütüphanede"
+                            if (added) "Rafa eklendi" else "Bu kitap zaten kütüphanede"
                         )
                     }
                 }
@@ -315,18 +340,40 @@ fun LibraryRoot() {
 }
 
 @Composable
-private fun ShelfHeader(realCount: Int, spineCount: Int) {
-    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 6.dp)) {
-        Text(
-            text = "Ender'in Kütüphanesi",
-            style = MaterialTheme.typography.displaySmall
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "Rafta $spineCount cilt · kütüphanende $realCount kitap",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+private fun ShelfHeader(realCount: Int, spineCount: Int, onScan: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "Ender Kütüphane",
+                style = MaterialTheme.typography.displaySmall
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Rafta $spineCount cilt · kütüphanende $realCount kitap",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        FilledTonalIconButton(
+            onClick = onScan,
+            modifier = Modifier.size(52.dp),
+            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor = Color(0xFFEADCC4),
+                contentColor = Color(0xFF6B4A2F)
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.QrCodeScanner,
+                contentDescription = "Tara",
+                modifier = Modifier.size(26.dp)
+            )
+        }
     }
 }
 
@@ -434,7 +481,7 @@ private fun BookListTab(books: List<BookEntity>, onBookClick: (BookEntity) -> Un
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddBookSheet(
-    isbn: String,
+    lookup: PendingLookup,
     onDismiss: () -> Unit,
     onAdd: () -> Unit
 ) {
@@ -451,27 +498,160 @@ private fun AddBookSheet(
                 .padding(bottom = 40.dp)
         ) {
             Text("Kütüphanende yok", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(14.dp))
+
+            val meta = lookup.meta
+            when {
+                lookup.loading -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = "Google Books'ta aranıyor…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                meta != null -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BookCover(
+                            book = BookEntity(
+                                isbn = lookup.isbn,
+                                title = meta.title,
+                                authors = meta.authors,
+                                publisher = meta.publisher,
+                                publishedDate = meta.publishedDate,
+                                pageCount = meta.pageCount,
+                                description = meta.description
+                            ),
+                            modifier = Modifier.width(62.dp).aspectRatio(2f / 3f),
+                            corner = 6.dp,
+                            compact = true
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = meta.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (meta.authors.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = meta.authors,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (meta.publisher.isNotBlank() || meta.publishedDate.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = listOf(meta.publisher, meta.publishedDate)
+                                        .filter { it.isNotBlank() }
+                                        .joinToString(" · "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Kaynak: ${meta.source.ifBlank { "Google Books" }}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                else -> {
+                    Text(
+                        text = "Künye bulunamadı (Google Books ve Open Library). Yine de ISBN ile rafa ekleyebilirsin, bilgiler sonra tamamlanır.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
             Text(
-                text = "Bu kitabı rafa ekleyelim mi? Kapak ve künye bilgisi internetten gelecek, gerisi çevrimdışı çalışır.",
-                style = MaterialTheme.typography.bodyMedium,
+                text = "ISBN ${lookup.isbn}",
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(18.dp))
-            Text(
-                text = isbn,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(Modifier.height(26.dp))
+            Spacer(Modifier.height(24.dp))
             Button(
                 onClick = onAdd,
+                enabled = !lookup.loading,
                 modifier = Modifier.fillMaxWidth().height(54.dp)
             ) {
-                Text("Rafa ekle")
+                Text(if (meta != null) "Rafa ekle" else "ISBN ile ekle")
             }
         }
     }
+}
+
+@Composable
+private fun ManualIsbnDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var text by remember { mutableStateOf("") }
+    val normalized = normalizeIsbn(text)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = { Text("ISBN ile ara", style = MaterialTheme.typography.headlineSmall) },
+        text = {
+            Column {
+                Text(
+                    text = "Barkod okunamadıysa kitabın arkasındaki ISBN numarasını yaz. 10 veya 13 hane olabilir.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { input ->
+                        text = input.filter { it.isDigit() || it == 'X' || it == 'x' }
+                    },
+                    singleLine = true,
+                    label = { Text("ISBN") },
+                    placeholder = { Text("978…") },
+                    isError = text.length >= 10 && normalized == null,
+                    supportingText = {
+                        when {
+                            text.isEmpty() -> Text("Örn. 9789750718533")
+                            normalized == null -> Text("Geçersiz ISBN")
+                            else -> Text("Geçerli: $normalized")
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { normalized?.let(onSubmit) },
+                enabled = normalized != null
+            ) { Text("Sorgula") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Vazgeç") }
+        }
+    )
 }
 
 @Composable

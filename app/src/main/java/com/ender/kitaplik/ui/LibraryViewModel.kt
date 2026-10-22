@@ -26,5 +26,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun find(isbn: String): BookEntity? = repo.find(isbn)
 
-    suspend fun add(isbn: String): Boolean = repo.addIsbn(isbn)
+    suspend fun add(isbn: String, prefill: com.ender.kitaplik.data.RemoteMeta? = null): Boolean =
+        repo.addIsbn(isbn, prefill)
+
+    suspend fun lookup(isbn: String): com.ender.kitaplik.data.RemoteMeta? = repo.lookup(isbn)
 }

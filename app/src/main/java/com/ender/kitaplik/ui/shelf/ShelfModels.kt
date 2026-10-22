@@ -12,7 +12,10 @@ data class ShelfBook(
     val heightDp: Float,
     val colorSeed: Int,
     val isReal: Boolean,
-    val entity: BookEntity? = null
+    val entity: BookEntity? = null,
+    val tiltDeg: Float = 0f,
+    /** Egik cildin yaslanma payi (dp): komsusuna binmemesi icin ayrilan bosluk. */
+    val tiltBudgetDp: Float = 0f
 )
 
 data class ShelfRow(
@@ -20,6 +23,8 @@ data class ShelfRow(
     val spacingDp: Float,
     val heightDp: Float
 )
+
+private const val TILT_BUDGET_DP = 6.5f
 
 private val TitleA = listOf(
     "Sessiz", "Kayıp", "Bakır", "Solgun", "Kıyıdaki", "Yalnız", "Gizli", "Uzak",
@@ -94,10 +99,27 @@ fun buildFittedShelves(
         val fitted = rowItems.mapIndexed { i, book ->
             book.copy(widthDp = (available * (weights[i] / weightSum)).toFloat().coerceAtLeast(6f))
         }
+
+        // Her rafta en fazla bir kitap yaslanir; komsusuna binmemesi icin pay birakilir.
+        val tilted = if (count >= 3) {
+            val tiltSign = if (r % 2 == 0) 1f else -1f
+            val tiltIndex = 1 + ((r * 7 + 3) % (count - 2))
+            fitted.mapIndexed { i, book ->
+                if (i == tiltIndex) {
+                    book.copy(
+                        widthDp = book.widthDp + TILT_BUDGET_DP,
+                        heightDp = book.heightDp * 0.9f,
+                        tiltDeg = 5f * tiltSign,
+                        tiltBudgetDp = TILT_BUDGET_DP
+                    )
+                } else book
+            }
+        } else fitted
+
         result += ShelfRow(
-            books = fitted,
+            books = tilted,
             spacingDp = gap,
-            heightDp = fitted.maxOf { it.heightDp }
+            heightDp = tilted.maxOf { it.heightDp }
         )
     }
     return result
@@ -115,13 +137,16 @@ private fun realHeight(book: BookEntity): Float =
 private fun decorative(index: Int): ShelfBook {
     val title = "${TitleA[index % TitleA.size]} ${TitleB[(index / TitleA.size) % TitleB.size]}"
     val seed = index * 2654435761L
+    val hashed = seed.hashCode() and 0x7fffffff
+    val height = 146f + (((seed / 3).hashCode() and 0x7fffffff) % 26).toFloat()
+
     return ShelfBook(
         key = "deco-$index",
         title = title,
         authors = FakeAuthors[(index * 7) % FakeAuthors.size],
-        widthDp = 25f + ((seed.hashCode() and 0x7fffffff) % 17).toFloat(),
-        heightDp = 146f + (((seed / 3).hashCode() and 0x7fffffff) % 26).toFloat(),
-        colorSeed = (seed.hashCode() and 0x7fffffff),
+        widthDp = 25f + (hashed % 17).toFloat(),
+        heightDp = height,
+        colorSeed = hashed,
         isReal = false
     )
 }

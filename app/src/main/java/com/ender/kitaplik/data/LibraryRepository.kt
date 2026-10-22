@@ -30,22 +30,37 @@ class LibraryRepository(
      * Cevrimdisi calisir: kayit hemen olusur, metadata arka planda gelir.
      * @return false -> kitap zaten kutuphanede
      */
-    suspend fun addIsbn(isbn: String): Boolean {
+    suspend fun addIsbn(isbn: String, prefill: RemoteMeta? = null): Boolean {
         val existing = dao.findByIsbn(isbn)
         if (existing != null) return false
+
+        val coverPath = prefill?.coverBytes?.let { writeCover(isbn, it) }
+        val hasMeta = prefill != null && prefill.title.isNotBlank()
 
         val inserted = dao.insert(
             BookEntity(
                 isbn = isbn,
-                title = "Kitap bilgileri getiriliyor",
-                addedAt = nextOrder()
+                title = prefill?.title?.ifBlank { "Kitap bilgileri getiriliyor" }
+                    ?: "Kitap bilgileri getiriliyor",
+                authors = prefill?.authors.orEmpty(),
+                publisher = prefill?.publisher.orEmpty(),
+                publishedDate = prefill?.publishedDate.orEmpty(),
+                pageCount = prefill?.pageCount ?: 0,
+                description = prefill?.description.orEmpty(),
+                coverPath = coverPath,
+                addedAt = nextOrder(),
+                enriched = hasMeta
             )
         )
         if (inserted == -1L) return false
 
-        scope.launch { enrich(isbn) }
+        if (!hasMeta) scope.launch { enrich(isbn) }
         return true
     }
+
+    /** Tarama aninda kutuphanede yoksa: Google Books -> Open Library sorgusu. */
+    suspend fun lookup(isbn: String): RemoteMeta? =
+        runCatching { metadataSource.fetch(isbn, withCover = true) }.getOrNull()
 
     suspend fun retryPending() {
         scope.launch {

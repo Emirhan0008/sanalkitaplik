@@ -1,9 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+// local.properties (git'e girmez) icinden Google Books API anahtari
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val gbooksKey: String = localProps.getProperty("gbooks.key", "").trim()
 
 android {
     namespace = "com.ender.kitaplik"
@@ -15,6 +24,9 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        // Anahtar yoksa bos kalir; uygulama anahtarsiz da calisir (daha dusuk kota).
+        buildConfigField("String", "GBOOKS_KEY", "\"$gbooksKey\"")
     }
 
     buildTypes {

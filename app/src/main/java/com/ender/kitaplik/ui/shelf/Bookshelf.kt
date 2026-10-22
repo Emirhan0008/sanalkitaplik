@@ -13,17 +13,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -31,15 +29,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 // ---- vintage ceviz paleti ----
 private val ShelfBack = Color(0xFFE7D6B6)
@@ -523,45 +528,43 @@ fun BookSpine(
             }
         }
 
-        // sirt yazisi: cok kucuk baslik + yazar (gercek kitaplarda altin yazi)
+        // sirt yazisi: cok kucuk baslik + yazar (Canvas uzerinde, 180 dugum olusturmadan)
         run {
             val spineTitle = book.title.trim()
             if (spineTitle.isNotBlank()) {
                 val author = book.authors.substringBefore(',').trim()
+                val label = if (author.isBlank()) spineTitle else "$spineTitle · $author"
                 val ink = if (book.isReal) {
                     GoldBright.copy(alpha = 0.92f)
                 } else {
                     Color(0xFFF3E6C8).copy(alpha = 0.34f)
                 }
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .requiredWidth((spineHeight - 30.dp).coerceAtLeast(20.dp))
-                        .rotate(-90f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = spineTitle,
-                        color = ink,
-                        fontSize = if (book.isReal) 6.sp else 5.5.sp,
-                        fontFamily = FontFamily.Serif,
-                        lineHeight = 7.sp,
-                        maxLines = 1,
-                        softWrap = false,
+                val density = LocalDensity.current
+                val measurer = rememberTextMeasurer(cacheSize = 32)
+                val style = TextStyle(
+                    color = ink,
+                    fontSize = if (book.isReal) 6.sp else 5.sp,
+                    fontFamily = FontFamily.Serif
+                )
+                // sirt yuksekliginin neredeyse tamami yazi icin kullanilir; kenarda 8dp pay
+                val maxWidthPx = with(density) { (spineHeight - 16.dp).roundToPx() }.coerceAtLeast(1)
+                val layout = remember(label, book.isReal, maxWidthPx, density) {
+                    measurer.measure(
+                        text = label,
+                        style = style,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        maxLines = 1,
+                        constraints = Constraints(maxWidth = maxWidthPx)
                     )
-                    if (author.isNotBlank()) {
-                        Text(
-                            text = "· $author",
-                            color = ink.copy(alpha = ink.alpha * 0.8f),
-                            fontSize = if (book.isReal) 4.5.sp else 4.sp,
-                            fontFamily = FontFamily.Serif,
-                            lineHeight = 6.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
+                }
+                Canvas(Modifier.fillMaxSize()) {
+                    rotate(degrees = -90f, pivot = center) {
+                        drawText(
+                            textLayoutResult = layout,
+                            topLeft = Offset(
+                                x = center.x - layout.size.width / 2f,
+                                y = center.y - layout.size.height / 2f
+                            )
                         )
                     }
                 }

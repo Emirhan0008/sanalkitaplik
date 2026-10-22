@@ -68,6 +68,22 @@ ui/
 `local.properties` içinde `sdk.dir` gerekir. Proje yolu `W:\Sanal Kitaplık` (Türkçe karakter + boşluk)
 olduğu için `gradle.properties` içinde `android.overridePathCheck=true` açık.
 
+## Google Books API anahtarı
+
+Anahtar zorunlu değil; uygulama anahtarsız da Google Books'u sorgular (daha düşük günlük kota,
+429 alındığında otomatik Open Library'ye düşer). Anahtar kullanmak için:
+
+1. Google Cloud projesinde `books.googleapis.com` servisini etkinleştir.
+2. Yalnızca Books API'ye kısıtlı bir API anahtarı oluştur
+   (`gcloud services api-keys create --api-target=service=books.googleapis.com`).
+3. Anahtarı **`local.properties`** içine yaz: `gbooks.key=...`
+   (dosya `.gitignore`'da, anahtar repoya girmez).
+4. `app/build.gradle.kts` anahtarı `BuildConfig.GBOOKS_KEY` olarak derler; `BookMetadataSource`
+   istek URL'lerine ekler.
+
+Google Books 429/5xx dönerse istemci 10 dakika devre dışı kalır (devre kesici) ve doğrudan
+Open Library'ye geçer; geçici Google kesintileri taramayı yavaşlatmaz.
+
 ## Notlar
 
 - Debug derlemede veritabanı boşsa 9 örnek kitap eklenir (gerçek barkodlarla test için).

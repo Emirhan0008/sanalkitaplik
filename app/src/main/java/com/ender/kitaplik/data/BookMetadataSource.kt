@@ -1,5 +1,6 @@
 package com.ender.kitaplik.data
 
+import com.ender.kitaplik.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -35,9 +36,26 @@ class BookMetadataSource(
         .readTimeout(6, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Google Books ust uste hata verirse (429/5xx) 10 dakika devre disi kalir;
+     * boylece her taramada bosuna bekleme olmaz, dogrudan Open Library'ye gecilir.
+     */
+    @Volatile
+    private var googleDownUntil = 0L
+
+    private fun googleAvailable() = System.currentTimeMillis() >= googleDownUntil
+
+    private fun markGoogleDown() {
+        googleDownUntil = System.currentTimeMillis() + 10 * 60_000L
+    }
+
     suspend fun fetch(isbn: String, withCover: Boolean = true): RemoteMeta? = withContext(Dispatchers.IO) {
-        // 1) Birincil: Google Books
-        val google = runCatching { fromGoogleBooks(isbn) }.getOrNull()
+        // 1) Birincil: Google Books (devre disiysa dogrudan Open Library)
+        val google = if (googleAvailable()) {
+            runCatching { fromGoogleBooks(isbn) }
+                .onFailure { markGoogleDown() }
+                .getOrNull()
+        } else null
         // 2) Yedek: Google bos/eksik donerse Open Library
         val needsMore = google == null || google.title.isBlank()
         val openLibrary = if (needsMore) {
@@ -77,15 +95,15 @@ class BookMetadataSource(
             val found = LinkedHashSet<String>()
             val author = authors.substringBefore(',').trim()
 
-            runCatching {
+            if (googleAvailable()) runCatching {
                 val query = buildString {
                     append("intitle:").append(title.trim())
                     if (author.isNotBlank()) append(" inauthor:").append(author)
                 }
-                val url = "https://www.googleapis.com/books/v1/volumes?q=" +
-                    java.net.URLEncoder.encode(query, "UTF-8") +
-                    "&maxResults=20&country=US"
-                val items = getJson(url).optJSONArray("items") ?: return@runCatching
+                val url = googleBooksUrl(
+                    "q=" + java.net.URLEncoder.encode(query, "UTF-8") + "&maxResults=20"
+                )
+                val items = getJson(url, attempts = 2).optJSONArray("items") ?: return@runCatching
                 for (i in 0 until items.length()) {
                     val ids = items.getJSONObject(i)
                         .optJSONObject("volumeInfo")
@@ -95,7 +113,7 @@ class BookMetadataSource(
                         normalizeIsbn(ids.getJSONObject(j).optString("identifier"))?.let { found += it }
                     }
                 }
-            }
+            }.onFailure { markGoogleDown() }
 
             runCatching {
                 val query = buildString {
@@ -127,7 +145,7 @@ class BookMetadataSource(
     )
 
     private fun fromGoogleBooks(isbn: String): Raw? {
-        val json = getJson("https://www.googleapis.com/books/v1/volumes?q=isbn:$isbn&country=US")
+        val json = getJson(googleBooksUrl("q=isbn:$isbn"), attempts = 3)
         val items = json.optJSONArray("items") ?: return null
         if (items.length() == 0) return null
         val info = items.getJSONObject(0).optJSONObject("volumeInfo") ?: return null
@@ -167,12 +185,28 @@ class BookMetadataSource(
 
     private fun openLibraryCoverUrl(isbn: String) = "https://covers.openlibrary.org/b/isbn/$isbn-L.jpg"
 
-    private fun getJson(url: String): JSONObject {
-        val request = Request.Builder().url(url).header("User-Agent", "Kitaplik/1.0").build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) error("HTTP ${response.code} for $url")
-            return JSONObject(response.body?.string() ?: error("empty body"))
+    /** Google Books URL'ine anahtar varsa ekler (anahtar local.properties'ten gelir). */
+    private fun googleBooksUrl(params: String): String {
+        val key = BuildConfig.GBOOKS_KEY
+        val auth = if (key.isBlank()) "" else "&key=$key"
+        return "https://www.googleapis.com/books/v1/volumes?$params$auth"
+    }
+
+    private fun getJson(url: String, attempts: Int = 1): JSONObject {
+        var lastError: Exception? = null
+        for (attempt in 0 until attempts) {
+            try {
+                val request = Request.Builder().url(url).header("User-Agent", "Kitaplik/1.0").build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) error("HTTP ${response.code} for $url")
+                    return JSONObject(response.body?.string() ?: error("empty body"))
+                }
+            } catch (e: Exception) {
+                lastError = e
+                if (attempt < attempts - 1) Thread.sleep(350L * (attempt + 1))
+            }
         }
+        throw lastError ?: error("request failed")
     }
 
     private fun download(url: String): ByteArray {

@@ -185,6 +185,9 @@ class BookMetadataSource(
         val json = getJson("https://openlibrary.org/isbn/$isbn.json")
         val title = json.optString("title")
         if (title.isBlank()) return null
+        // Open Library, taninmayan ISBN'lerde baska bir kayda yonlendirebiliyor
+        // (spam/yanlis kunye). Kaydin ISBN listesi varsa istenen ISBN icinde olmali.
+        if (!listsIsbn(json, isbn)) return null
         return Raw(
             title = title,
             // Open Library baski kaydinda yazar cogu zaman by_statement alaninda
@@ -198,6 +201,27 @@ class BookMetadataSource(
     }
 
     private fun openLibraryCoverUrl(isbn: String) = "https://covers.openlibrary.org/b/isbn/$isbn-L.jpg"
+
+    /**
+     * Open Library baski kaydi istenen ISBN'i listeliyor mu?
+     * Alanlar hic yoksa dogrulanamaz -> kabul (eski kayitlar).
+     */
+    private fun listsIsbn(json: JSONObject, isbn: String): Boolean {
+        val listed = mutableListOf<String>()
+        json.optJSONArray("isbn_13")?.let { arr ->
+            for (i in 0 until arr.length()) listed += arr.optString(i)
+        }
+        json.optJSONArray("isbn_10")?.let { arr ->
+            for (i in 0 until arr.length()) listed += arr.optString(i)
+        }
+        if (listed.isEmpty()) return true
+        return listed.any { raw ->
+            val cleaned = raw.filter { it.isDigit() || it == 'X' || it == 'x' }.uppercase()
+            // OL'de "0000000000" gibi sahte ISBN'ler checksum'i gecse bile kaydi guvenilmez kilar.
+            val junk = cleaned.count { it == '0' } >= 7
+            !junk && normalizeIsbn(cleaned) == isbn
+        }
+    }
 
     /** Google Books URL'ine anahtar varsa ekler (anahtar local.properties'ten gelir). */
     private fun googleBooksUrl(params: String): String {

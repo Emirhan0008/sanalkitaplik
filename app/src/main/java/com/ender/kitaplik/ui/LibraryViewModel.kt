@@ -20,7 +20,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             repo.seedIfEmpty()
-            repo.retryPending()
+            repo.enqueueEnrich()
             repo.prefetchCovers()
         }
     }
@@ -33,6 +33,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun remove(isbn: String) = repo.remove(isbn)
 
     suspend fun restore(book: com.ender.kitaplik.data.BookEntity) = repo.restore(book)
+
+    /** Detaydaki "Künye eksik — yeniden dene" rozeti. */
+    suspend fun retryEnrich(isbn: String) = repo.retryEnrich(isbn)
 
     suspend fun lookup(isbn: String): com.ender.kitaplik.data.RemoteMeta? = repo.lookup(isbn)
 

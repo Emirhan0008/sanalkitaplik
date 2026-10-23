@@ -105,7 +105,7 @@ Kanıt (emülatör, `emulator-5556`):
 
 ---
 
-## Faz 4 — WorkManager ile çevrimdışı kuyruk
+## Faz 4 — WorkManager ile çevrimdışı kuyruk (✅ tamamlandı)
 
 **Neden:** İnternetsiz eklenen kitap `enriched=false` kalıyor; şu an yalnızca uygulama açılışında deneniyor.
 
@@ -122,6 +122,15 @@ Kanıt (emülatör, `emulator-5556`):
 
 **Dosyalar:** yeni `data/EnrichWorker.kt`, `KitaplikApp.kt`, `LibraryRepository.kt`, `LibraryViewModel.kt`
 **Tahmin:** 1.5 oturum · **Risk:** orta (WorkManager başlatma + Room eşzamanlılığı)
+
+Kanıt (emülatör, `emulator-5556`):
+- Uçak modunda `9780061120084` eklendi → `enriched=0`; WorkManager işi `CONNECTIVITY` kısıtıyla kuyruğa girdi (`dumpsys jobscheduler`, paket `com.ender.kitaplik`).
+- Ağ açıldıktan ~30 sn sonra kayıt `enriched=1`, başlık "To Kill a Mockingbird" oldu (uygulama açıkken; iş UI'dan bağımsız).
+- Aynı ISBN için ikinci worker oluşmuyor (`enqueueUniqueWork` + `APPEND_OR_REPLACE`).
+- Başarısız denemede `enrichAttempts` artıyor (uydurma ISBN 9780000000002 → 1. denemeden sonra `enrichAttempts=1`); rozet eşiği 5.
+- Detaydaki **"Künye eksik · yeniden dene"** rozeti, eşik geçici olarak 0 yapılan doğrulama derlemesinde görsel olarak doğrulandı (metin + buton); buton `sıraya alındı` durumuna geçiyor ve işi yeniden kuyruğa atıyor.
+- **Ek sağlamlaştırma:** Open Library, tanınmayan ISBN'lerde başka kayda yönlendirip yanlış künye döndürebiliyor (ör. 9780000000002 → "Kitab Jurumiyyah"). Artık kaydın ISBN listesi istenen ISBN'i içermiyorsa ya da yalnızca `0000000000` gibi sahte ISBN varsa künye reddediliyor.
+- Bilinen sınırlama: bazı gerçek Türkçe ISBN'lerde OL hâlâ yanlış kayıt döndürebiliyor (9789750718533 → "1984"). Google Books birincil kaynak olduğu için Google döndüğünde bu sınıf hatalar azalacak.
 
 ---
 

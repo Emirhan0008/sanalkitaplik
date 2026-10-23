@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -64,7 +65,8 @@ fun BookDetailLayer(
     target: Rect,
     visible: Boolean,
     onClose: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onRetryEnrich: () -> Unit
 ) {
     var confirmRemove by remember { mutableStateOf(false) }
 
@@ -169,6 +171,10 @@ fun BookDetailLayer(
 
             Spacer(Modifier.height(18.dp))
             LibraryBadge()
+            if (!book.enriched && book.enrichAttempts >= 5) {
+                Spacer(Modifier.height(10.dp))
+                MissingMetaBadge(onRetryEnrich)
+            }
             Spacer(Modifier.height(18.dp))
 
             MetaRow("Yayınevi", book.publisher)
@@ -269,6 +275,49 @@ private fun LibraryBadge() {
             color = MaterialTheme.colorScheme.primary,
             fontSize = 10.sp
         )
+    }
+}
+
+@Composable
+private fun MissingMetaBadge(onRetry: () -> Unit) {
+    var queued by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0x1FC0392B))
+            .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Künye eksik",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color(0xFF8E3B2C),
+            fontSize = 10.sp
+        )
+        if (queued) {
+            Text(
+                "sıraya alındı",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 10.sp,
+                color = Color(0xFF8E3B2C),
+                modifier = Modifier.padding(horizontal = 8.dp)
+            )
+        } else {
+            TextButton(
+                onClick = {
+                    queued = true
+                    onRetry()
+                },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    "yeniden dene",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    color = Color(0xFF8E3B2C)
+                )
+            }
+        }
     }
 }
 

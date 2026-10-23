@@ -385,7 +385,11 @@ fun LibraryRoot() {
                 target = flyTarget ?: target.snapped(),
                 visible = detailVisible,
                 onClose = dismiss,
-                onRemove = { removeBook(detailBook) }
+                onRemove = { removeBook(detailBook) },
+                onRetryEnrich = {
+                    val isbn = detailBook.isbn
+                    scope.launch { vm.retryEnrich(isbn) }
+                }
             )
         }
 

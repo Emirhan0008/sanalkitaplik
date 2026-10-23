@@ -71,7 +71,7 @@ class LibraryRepository(
         )
         if (inserted == -1L) return false
 
-        if (!hasMeta) scope.launch { enrich(isbn) }
+        if (!hasMeta) EnrichWorker.enqueue(appContext)
         return true
     }
 
@@ -102,10 +102,16 @@ class LibraryRepository(
         return dao.findByIsbns(others).firstOrNull()
     }
 
-    suspend fun retryPending() {
-        scope.launch {
-            dao.pendingEnrichment().forEach { enrich(it.isbn) }
-        }
+    /** WorkManager kuyruguna kunye tamamlama isi birakir (tek kuyruk, tekrar eklenmez). */
+    fun enqueueEnrich() = EnrichWorker.enqueue(appContext)
+
+    suspend fun pendingIsbns(): List<String> = dao.pendingEnrichment().map { it.isbn }
+
+    /** Rozetteki "yeniden dene": deneme sayacini sifirlar ve kuyruga birakir. */
+    suspend fun retryEnrich(isbn: String) {
+        val current = dao.findByIsbn(isbn) ?: return
+        dao.update(current.copy(enrichAttempts = 0))
+        enqueueEnrich()
     }
 
     /**
@@ -148,11 +154,19 @@ class LibraryRepository(
         }
     }
 
-    suspend fun enrich(isbn: String) {
-        if (!inFlight.add(isbn)) return
+    /**
+     * Kunyeyi indirir. Donus: true -> tamamlandi (ya da kitap artik yok),
+     * false -> bu denemede basarisiz (deneme sayaci artar, WorkManager yeniden dener).
+     */
+    suspend fun enrich(isbn: String): Boolean {
+        if (!inFlight.add(isbn)) return true
         try {
-            val current = dao.findByIsbn(isbn) ?: return
-            val remote = runCatching { metadataSource.fetch(isbn) }.getOrNull() ?: return
+            val current = dao.findByIsbn(isbn) ?: return true
+            val remote = runCatching { metadataSource.fetch(isbn) }.getOrNull()
+            if (remote == null || remote.title.isBlank()) {
+                dao.update(current.copy(enrichAttempts = current.enrichAttempts + 1))
+                return false
+            }
             val coverPath = remote.coverBytes?.let { writeCover(isbn, it) }
 
             dao.update(
@@ -164,9 +178,11 @@ class LibraryRepository(
                     pageCount = if (remote.pageCount > 0) remote.pageCount else current.pageCount,
                     description = remote.description.ifBlank { current.description },
                     coverPath = coverPath ?: current.coverPath,
-                    enriched = true
+                    enriched = true,
+                    enrichAttempts = 0
                 )
             )
+            return true
         } finally {
             inFlight.remove(isbn)
         }

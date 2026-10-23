@@ -15,5 +15,7 @@ data class BookEntity(
     val coverPath: String? = null,
     val addedAt: Long = System.currentTimeMillis(),
     /** false -> metadata henuz indirilemedi (cevrimdisi eklendi) */
-    val enriched: Boolean = false
+    val enriched: Boolean = false,
+    /** Basarisiz kunye denemesi sayisi; 5'ten sonra detayda "Kunye eksik" rozeti cikar. */
+    val enrichAttempts: Int = 0
 )

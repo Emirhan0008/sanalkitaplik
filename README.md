@@ -72,6 +72,18 @@ Kapaklar `files/covers/<isbn>.jpg` olarak cihazda tutulur (çevrimdışı çalı
 - Coil 100 MB disk + %15 bellek önbelleğiyle yapılandırılmıştır; uçuş animasyonu ve detay ekranı
   aynı çözümlenmiş görseli kullanır.
 
+## Künye tamamlama (WorkManager)
+
+Çevrimdışı eklenen kitaplar `enriched=false` olarak kaydedilir ve **WorkManager** kuyruğuna girer:
+
+- Yalnızca ağ bağlantısı varken çalışır (şarj/Wi-Fi zorunlu değil), exponential backoff 30 sn → 1 saat,
+  en fazla 5 deneme.
+- Tek kuyruk (`enqueueUniqueWork` + `APPEND_OR_REPLACE`): aynı iş için ikinci worker oluşmaz, uygulama
+  kapalıyken de tamamlanır.
+- 5 başarısız denemeden sonra detay ekranında **"Künye eksik · yeniden dene"** rozeti çıkar.
+- Open Library kaydı istenen ISBN'i listelemiyorsa (ya da yalnızca `0000000000` gibi sahte ISBN
+  taşıyorsa) künye reddedilir; böylece rastgele/yanlış başlık kütüphaneye yazılmaz.
+
 ## Katmanlar
 
 ```
@@ -81,6 +93,7 @@ data/
   BookMetadataSource.kt                 Google Books → Open Library + diğer baskı ISBN'leri
   WorkMatcher.kt                        ISBN'den bağımsız eser/baskı eşleştirme
   LibraryRepository.kt                  çevrimdışı öncelikli; enrich + kapak ön indirme tekilleştirilmiş
+  EnrichWorker.kt                       WorkManager kuyruğu (ağ kısıtı, backoff, tek iş)
 ui/
   LibraryRoot.kt                        sekmeler, faz makinesi (Idle/Flying/Detail/Closing)
   shelf/ShelfModels.kt                  sırt üretimi + satırlara tam oturan yerleşim

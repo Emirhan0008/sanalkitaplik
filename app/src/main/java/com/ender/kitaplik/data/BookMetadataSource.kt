@@ -223,11 +223,13 @@ class BookMetadataSource(
         }
     }
 
-    /** Google Books URL'ine anahtar varsa ekler (anahtar local.properties'ten gelir). */
+    /** Google Books URL'ine anahtar (local.properties) ve ulke parametresi ekler. */
     private fun googleBooksUrl(params: String): String {
         val key = BuildConfig.GBOOKS_KEY
         val auth = if (key.isBlank()) "" else "&key=$key"
-        return "https://www.googleapis.com/books/v1/volumes?$params$auth"
+        // country olmadan bazi IP'lerde totalItems=0 donuyor; cihaz ulkesini gonder.
+        val country = java.util.Locale.getDefault().country.ifBlank { "TR" }
+        return "https://www.googleapis.com/books/v1/volumes?$params$auth&country=$country"
     }
 
     private fun getJson(url: String, attempts: Int = 1): JSONObject {

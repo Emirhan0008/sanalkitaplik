@@ -78,13 +78,15 @@ Kanıt (emülatör, `emulator-5556`):
 
 ---
 
-## Faz 3 — Kapak ön indirme ve önbellek
+## Faz 3 — Kapak ön indirme ve önbellek (✅ tamamlandı)
 
 **Neden:** Uçuş animasyonu sırasında kapak henüz inmemişse yer tutucu görünüyor.
 
 **Kapsam**
-- `enrich` sırasında kapak indirme zaten var; ek olarak **açılışta kapaksız kitaplar için sessiz ön indirme** (tek seferde en fazla 10, iptal edilebilir).
-- Coil disk önbelleği sabit boyut (100 MB) + bellek önbelleği.
+- `enrich` sırasında kapak indirme zaten var; ek olarak **açılışta kapaksız kitaplar için sessiz ön indirme** (tek seferde en fazla 10, eşzamanlılık 3).
+- `fetchCoverBytes`: tam künye sorgusu yapmadan doğrudan Open Library ISBN kapağı → Google thumbnail.
+- Açılışta **kırık kapak referansı onarımı**: `coverPath` dolu ama dosya yoksa yol temizlenir, ön indirme onarır.
+- Coil disk önbelleği sabit boyut (100 MB) + %15 bellek önbelleği (`ImageLoaderFactory`).
 - İndirme başarısızsa üretilen cilt kapağı kalır (mevcut davranış korunur).
 
 **Kabul kriterleri**
@@ -92,8 +94,14 @@ Kanıt (emülatör, `emulator-5556`):
 2. Yeni eklenen kitap ≤ 1 sn içinde kapakla açılır.
 3. Ön indirme, kullanıcı rafı kaydırırken kare düşürmez (IO dispatcher).
 
-**Dosyalar:** `LibraryRepository.kt`, `KitaplikApp.kt`, `BookCover.kt`
+**Dosyalar:** `LibraryRepository.kt`, `BookDao.kt`, `BookMetadataSource.kt`, `KitaplikApp.kt`, `LibraryViewModel.kt`
 **Tahmin:** 1 oturum · **Risk:** düşük
+
+Kanıt (emülatör, `emulator-5556`):
+- Öncesinde `files/covers/` boştu (DB'de 8 kayıt kırık yolla duruyordu). Açılıştan sonra 7 kapak indirildi (23:51).
+- Kırık yollu *Fantastic Mr. Fox* bir sonraki açılışta onarıldı (74 KB, 23:56); kütüphanede 8/9 kitap kapaklı.
+- `Saatleri Ayarlama Enstitüsü` (9789750707711) için kaynaklarda kapak yok → üretilmiş kapak gösteriliyor; her açılışta sessizce yeniden denenir.
+- Açılış bloke olmuyor, ANR/FATAL yok; raf hemen çiziliyor.
 
 ---
 

@@ -28,6 +28,10 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE enriched = 0")
     suspend fun pendingEnrichment(): List<BookEntity>
 
+    /** Kapak on indirmesi icin: kapagi olmayan kitaplar (en eski once). */
+    @Query("SELECT * FROM books WHERE coverPath IS NULL ORDER BY addedAt ASC LIMIT :limit")
+    suspend fun withoutCover(limit: Int): List<BookEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(book: BookEntity): Long
 

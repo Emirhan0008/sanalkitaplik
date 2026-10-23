@@ -21,6 +21,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             repo.seedIfEmpty()
             repo.retryPending()
+            repo.prefetchCovers()
         }
     }
 

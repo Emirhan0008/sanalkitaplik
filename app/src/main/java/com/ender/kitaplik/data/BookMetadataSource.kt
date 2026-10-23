@@ -86,6 +86,20 @@ class BookMetadataSource(
     }
 
     /**
+     * Yalnizca kapak indirir (acilista sessiz on indirme icin).
+     * Once Open Library'nin dogrudan ISBN kapagi, olmazsa Google thumbnail denenir;
+     * tam kunye sorgusu yapilmadigi icin kotayi tuketmez.
+     */
+    suspend fun fetchCoverBytes(isbn: String): ByteArray? = withContext(Dispatchers.IO) {
+        runCatching { download(openLibraryCoverUrl(isbn)) }.getOrNull()
+            ?.takeIf { it.size > 2_000 }
+            ?: runCatching {
+                val google = if (googleAvailable()) fromGoogleBooks(isbn) else null
+                google?.coverUrl?.let { download(it) }
+            }.getOrNull()?.takeIf { it.size > 2_000 }
+    }
+
+    /**
      * Ayni eserin diger baskilarinin ISBN'leri.
      * Google Books (baslik + yazar) ve Open Library aramasi birlestirilir.
      */

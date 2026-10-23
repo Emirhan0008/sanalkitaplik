@@ -59,6 +59,19 @@ soluk bir yazı olarak kalır (180 sırt tek ekranda olduğu için metin sırt g
 taşan kısım üç noktayla kesilir).
 
 
+## Kapaklar
+
+Kapaklar `files/covers/<isbn>.jpg` olarak cihazda tutulur (çevrimdışı çalışır). Uygulama açılışında:
+
+- `coverPath` dolu ama dosyası silinmiş kayıtlar onarılır (yol temizlenir).
+- Kapaksız kitaplar için **sessiz ön indirme** yapılır: en fazla 10 kitap, aynı anda 3 istek.
+  Önce Open Library'nin doğrudan ISBN kapağı, olmazsa Google Books thumbnail'i denenir; künye
+  sorgusu yapılmadığı için API kotası harcanmaz.
+- İndirme başarısız olursa (kaynakta kapak yok) ISBN'den üretilmiş cilt kapağı gösterilir ve
+  sonraki açılışta yeniden denenir.
+- Coil 100 MB disk + %15 bellek önbelleğiyle yapılandırılmıştır; uçuş animasyonu ve detay ekranı
+  aynı çözümlenmiş görseli kullanır.
+
 ## Katmanlar
 
 ```
@@ -67,7 +80,7 @@ data/
   Isbn.kt                               EAN-13 / ISBN-10 doğrulama + 13'e çevirme
   BookMetadataSource.kt                 Google Books → Open Library + diğer baskı ISBN'leri
   WorkMatcher.kt                        ISBN'den bağımsız eser/baskı eşleştirme
-  LibraryRepository.kt                  çevrimdışı öncelikli; enrich tekilleştirilmiş
+  LibraryRepository.kt                  çevrimdışı öncelikli; enrich + kapak ön indirme tekilleştirilmiş
 ui/
   LibraryRoot.kt                        sekmeler, faz makinesi (Idle/Flying/Detail/Closing)
   shelf/ShelfModels.kt                  sırt üretimi + satırlara tam oturan yerleşim

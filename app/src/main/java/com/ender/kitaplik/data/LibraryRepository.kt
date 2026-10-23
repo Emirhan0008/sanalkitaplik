@@ -4,8 +4,12 @@ import android.content.Context
 import com.ender.kitaplik.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -101,6 +105,46 @@ class LibraryRepository(
     suspend fun retryPending() {
         scope.launch {
             dao.pendingEnrichment().forEach { enrich(it.isbn) }
+        }
+    }
+
+    /**
+     * Acilista kapaksiz kitaplar icin sessiz on indirme.
+     * - Tek seferde en fazla [limit] kitap, ayni anda en fazla 3 istek (IO dostu).
+     * - Basarisiz indirme uretilmis kapakta kalir; bir sonraki acilista yeniden denenir.
+     * - Kullanici raf/liste kaydirirken kare dusurmemesi icin ayri coroutine'de calisir.
+     */
+    fun prefetchCovers(limit: Int = 10) {
+        scope.launch {
+            // 1) Referansi kirilmis kapaklar: dosyasi silinmisse yolu temizle,
+            //    boylece asagidaki on indirme bunlari da onarir.
+            dao.getAll().forEach { book ->
+                val path = book.coverPath ?: return@forEach
+                val exists = withContext(Dispatchers.IO) { File(path).exists() }
+                if (!exists) dao.update(book.copy(coverPath = null))
+            }
+
+            // 2) Kapaksiz kitaplar icin sessiz indirme (eski kitaplar once).
+            val missing = dao.withoutCover(limit)
+            if (missing.isEmpty()) return@launch
+            val gate = Semaphore(3)
+            missing.map { book ->
+                async {
+                    gate.withPermit {
+                        if (!inFlight.add(book.isbn)) return@withPermit
+                        try {
+                            val bytes = metadataSource.fetchCoverBytes(book.isbn) ?: return@withPermit
+                            val path = writeCover(book.isbn, bytes) ?: return@withPermit
+                            val current = dao.findByIsbn(book.isbn) ?: return@withPermit
+                            if (current.coverPath == null) dao.update(current.copy(coverPath = path))
+                        } catch (_: Exception) {
+                            // sessiz: on indirme basarisizligi kullaniciya yansimaz
+                        } finally {
+                            inFlight.remove(book.isbn)
+                        }
+                    }
+                }
+            }.awaitAll()
         }
     }
 

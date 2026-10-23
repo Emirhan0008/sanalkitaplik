@@ -89,12 +89,21 @@ fun FlightLayer(
                     )
                     .graphicsLayer {
                         val p = progress.value
-                        val appear = smooth(0.30f, 0.82f, p)
+                        val appear = smooth(0.26f, 0.60f, p)
                         alpha = appear
+                        // Sirt -> kapak: konum ve olcek birlikte suzulerek hedefe oturur.
+                        val t = smooth(0.24f, 1f, p)
+                        val sx = (start.width / target.width).coerceIn(0.08f, 1f)
+                        val sy = (start.height / target.height).coerceIn(0.08f, 1f)
                         transformOrigin = TransformOrigin(0.5f, 0.5f)
-                        val s = 0.70f + 0.30f * smooth(0.30f, 1f, p)
-                        scaleX = s
-                        scaleY = s
+                        scaleX = sx + (1f - sx) * t
+                        scaleY = sy + (1f - sy) * t
+                        translationX = (start.center.x - target.center.x) * (1f - t)
+                        // hafif yay: ortada biraz yukari suzulur, sonra yerine oturur
+                        val lift = kotlin.math.sin(t * Math.PI.toFloat()) * 46f * d
+                        translationY = (start.center.y - target.center.y) * (1f - t) - lift
+                        rotationY = -26f * (1f - t)
+                        cameraDistance = 22f * d
                         shadowElevation = 24f * d * appear
                         shape = RoundedCornerShape(18.dp)
                         clip = true

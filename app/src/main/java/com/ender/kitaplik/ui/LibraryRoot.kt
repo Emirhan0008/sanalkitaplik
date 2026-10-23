@@ -185,7 +185,7 @@ fun LibraryRoot() {
                 progress.animateTo(
                     targetValue = 1f,
                     animationSpec = tween(
-                        durationMillis = 620,
+                        durationMillis = 720,
                         easing = CubicBezierEasing(0.18f, 0.86f, 0.10f, 1f)
                     )
                 )
@@ -256,7 +256,14 @@ fun LibraryRoot() {
                 val found = vm.find(isbn)
                 if (found != null) {
                     tab = 0
-                    delay(200)
+                    // Sirtin ekran koordinati olusana kadar bekle; yoksa ucus
+                    // raf yerine dogrudan hedefte baslar ve animasyon gorunmez.
+                    var waited = 0
+                    while (waited < 1500 && (bounds[found.isbn]?.width ?: 0f) <= 1f) {
+                        delay(50)
+                        waited += 50
+                    }
+                    delay(60)
                     shelfByIsbn[found.isbn]?.let(reveal)
                 } else {
                     // Kutuphanede yok: once Google Books, olmazsa Open Library

@@ -54,9 +54,11 @@ tetiklenmez.
 ## Sırt yazıları
 
 Her sırtın üzerinde 90° döndürülmüş, çok küçük (4–6 sp) serif yazı vardır: başlık + yazar.
-Gerçek kitaplarda altın rengi ve okunur; dekoratif ciltlerde düşük alfalı, doku etkisi veren
-soluk bir yazı olarak kalır (180 sırt tek ekranda olduğu için metin sırt genişliğine sığdırılır,
-taşan kısım üç noktayla kesilir).
+Yazı rengi sırtın kendi renginden hesaplanır (göreli parlaklık): koyu ciltlerde krem, açık/okra
+ciltlerde koyu kahve. Böylece tüm sırtlar aynı beyazla boğulmaz, her cilt kendi kontrastını alır.
+Gerçek kitaplarda yazı tam opaklıkta okunur; dekoratif ciltlerde aynı kontrastın daha soluk hâli
+kullanılır (180 sırt tek ekranda olduğu için metin sırt genişliğine sığdırılır, taşan kısım üç
+noktayla kesilir).
 
 
 ## Kapaklar

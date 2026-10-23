@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 // ---- vintage ceviz paleti ----
@@ -356,6 +357,22 @@ private fun ShelfRowView(
     }
 }
 
+/**
+ * Sirt rengine gore okunur yazi rengi: koyu ciltte krem, acik ciltte koyu kahve.
+ * Boylece butun sirtlar ayni beyazla bogulmaz; her cilt kendi kontrastini alir.
+ */
+private fun spineInk(base: Color, real: Boolean): Color {
+    fun lin(v: Float) = if (v <= 0.03928f) v / 12.92f else ((v + 0.055f) / 1.055f).pow(2.4f)
+    val lum = 0.2126f * lin(base.red) + 0.7152f * lin(base.green) + 0.0722f * lin(base.blue)
+    val lightInk = Color(0xFFF9EFDA)
+    val darkInk = Color(0xFF2A1A0F)
+    return if (lum < 0.28f) {
+        lightInk.copy(alpha = if (real) 0.96f else 0.64f)
+    } else {
+        darkInk.copy(alpha = if (real) 0.92f else 0.58f)
+    }
+}
+
 @Composable
 fun BookSpine(
     book: ShelfBook,
@@ -564,11 +581,7 @@ fun BookSpine(
             if (spineTitle.isNotBlank()) {
                 val author = book.authors.substringBefore(',').trim()
                 val label = if (author.isBlank()) spineTitle else "$spineTitle · $author"
-                val ink = if (book.isReal) {
-                    GoldBright.copy(alpha = 0.92f)
-                } else {
-                    Color(0xFFF3E6C8).copy(alpha = 0.34f)
-                }
+                val ink = spineInk(base, book.isReal)
                 val density = LocalDensity.current
                 val measurer = rememberTextMeasurer(cacheSize = 32)
                 val style = TextStyle(

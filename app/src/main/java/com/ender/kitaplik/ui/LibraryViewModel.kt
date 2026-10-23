@@ -29,6 +29,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun add(isbn: String, prefill: com.ender.kitaplik.data.RemoteMeta? = null): Boolean =
         repo.addIsbn(isbn, prefill)
 
+    suspend fun remove(isbn: String) = repo.remove(isbn)
+
+    suspend fun restore(book: com.ender.kitaplik.data.BookEntity) = repo.restore(book)
+
     suspend fun lookup(isbn: String): com.ender.kitaplik.data.RemoteMeta? = repo.lookup(isbn)
 
     /** Ayni eserin farkli baskisi kutuphanede var mi? */

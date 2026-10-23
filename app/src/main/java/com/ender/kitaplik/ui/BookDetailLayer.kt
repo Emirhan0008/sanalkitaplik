@@ -2,6 +2,7 @@ package com.ender.kitaplik.ui
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,9 +27,16 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,8 +63,11 @@ fun BookDetailLayer(
     book: BookEntity,
     target: Rect,
     visible: Boolean,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onRemove: () -> Unit
 ) {
+    var confirmRemove by remember { mutableStateOf(false) }
+
     val density = LocalDensity.current
     val screenHeightPx = with(density) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
 
@@ -173,7 +184,47 @@ fun BookDetailLayer(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            Spacer(Modifier.height(28.dp))
+            OutlinedButton(
+                onClick = { confirmRemove = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                border = BorderStroke(1.dp, Color(0x336B4A2F))
+            ) {
+                Text("Kitaplıktan çıkar", style = MaterialTheme.typography.labelLarge)
+            }
             Spacer(Modifier.height(40.dp))
+        }
+
+        if (confirmRemove) {
+            AlertDialog(
+                onDismissRequest = { confirmRemove = false },
+                title = { Text("Kitaplıktan çıkarılsın mı?") },
+                text = {
+                    Text("\"${book.title}\" raftan kaldırılacak. Birkaç saniye içinde geri alabilirsin.")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmRemove = false
+                            onRemove()
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) { Text("Çıkar") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmRemove = false }) { Text("Vazgeç") }
+                },
+                containerColor = Color(0xFFFFFBF3),
+                titleContentColor = Color(0xFF3A2E24),
+                textContentColor = Color(0xFF5A4B3C)
+            )
         }
 
         IconButton(

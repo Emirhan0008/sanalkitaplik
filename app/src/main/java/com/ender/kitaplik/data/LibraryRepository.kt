@@ -26,6 +26,19 @@ class LibraryRepository(
 
     suspend fun find(isbn: String): BookEntity? = dao.findByIsbn(isbn)
 
+    /** Kullanici kitabi kaldirir; kapak dosyasi da silinir. */
+    suspend fun remove(isbn: String) {
+        dao.delete(isbn)
+        withContext(Dispatchers.IO) {
+            runCatching { File(coversDir, "$isbn.jpg").delete() }
+        }
+    }
+
+    /** "Geri al": ayni kayit (ISBN, eklenme sirasi, kapak yolu) aynen geri konur. */
+    suspend fun restore(book: BookEntity) {
+        dao.insert(book)
+    }
+
     /**
      * Cevrimdisi calisir: kayit hemen olusur, metadata arka planda gelir.
      * @return false -> kitap zaten kutuphanede

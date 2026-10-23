@@ -52,6 +52,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
@@ -205,6 +207,25 @@ fun LibraryRoot() {
         }
     }
 
+    // Kitapligi temizleme: detay kapanir, kayit silinir, 4 sn "Geri al" sunulur.
+    val removeBook: (BookEntity) -> Unit = remove@{ entity ->
+        if (phase != Phase.Detail) return@remove
+        dismiss()
+        scope.launch {
+            delay(320)
+            vm.remove(entity.isbn)
+            val result = snackbarHost.showSnackbar(
+                message = "“${entity.title}” raftan çıkarıldı",
+                actionLabel = "Geri al",
+                withDismissAction = true,
+                duration = SnackbarDuration.Short
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                vm.restore(entity)
+            }
+        }
+    }
+
     val handleScan: (String) -> Unit = { raw ->
         val isbn = normalizeIsbn(raw)
         if (isbn == null) {
@@ -313,7 +334,8 @@ fun LibraryRoot() {
                 book = detailBook,
                 target = flyTarget ?: target.snapped(),
                 visible = detailVisible,
-                onClose = dismiss
+                onClose = dismiss,
+                onRemove = { removeBook(detailBook) }
             )
         }
 

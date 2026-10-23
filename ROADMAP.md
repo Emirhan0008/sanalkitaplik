@@ -25,7 +25,7 @@ Kanıt: `9789750718533` → *Tutunamayanlar / Oğuz Atay / İletişim 1971 / 724
 
 ---
 
-## Faz 1 — Kitap silme + geri al
+## Faz 1 — Kitap silme + geri al (✅ tamamlandı)
 
 **Neden:** Yanlış okutulan/eklenen kitabı kaldırmanın yolu yok; kütüphane zamanla kirlenir.
 
@@ -44,9 +44,14 @@ Kanıt: `9789750718533` → *Tutunamayanlar / Oğuz Atay / İletişim 1971 / 724
 **Dosyalar:** `LibraryViewModel.kt`, `LibraryRoot.kt`, `BookDetailLayer.kt`, `LibraryRepository.kt`
 **Tahmin:** 1 oturum · **Risk:** düşük
 
+Kanıt (emülatör, `emulator-5556`):
+- "Kitaplıktan çıkar" → onay diyaloğu → "Çıkar": kitap raftan/listeden düşüyor, sayaç 9'a iniyor.
+- Snackbar'daki **"Geri al"** → kitap aynı ISBN ile geri geliyor, sayaç 9'da kalıyor (silindi + geri alındı), "Fantastic Mr. Fox" listede yeniden görünüyor.
+- Silme sırasında uçuş animasyonu tetiklenmiyor, raf yerleşimi titremiyor.
+
 ---
 
-## Faz 2 — Rafta arama ve vurgulama
+## Faz 2 — Rafta arama ve vurgulama (✅ tamamlandı)
 
 **Neden:** 100+ kitapta gözle kitap bulmak imkânsızlaşıyor; raf kaydırmasız kalmalı.
 
@@ -64,6 +69,12 @@ Kanıt: `9789750718533` → *Tutunamayanlar / Oğuz Atay / İletişim 1971 / 724
 
 **Dosyalar:** yeni `ShelfSearch.kt`, `ShelfModels.kt`, `Bookshelf.kt`, `LibraryRoot.kt`
 **Tahmin:** 2 oturum · **Risk:** orta (raf ölçüleri sabit kalmalı)
+
+Kanıt (emülatör, `emulator-5556`):
+- "kurk" → *Kürk Mantolu Madonna* sırtı altın çerçeveli, kalan sırtlar karartılmış; raf kaymıyor.
+- Enter → mevcut uçuş animasyonuyla detay açılıyor; geri tuşu aramayı kapatıyor.
+- "qqqxx" gibi eşleşmeyen sorgu → "Kütüphanende bulunamadı" snackbar'ı; **"ISBN ile ekle"** aksiyonu elle ISBN diyaloğunu ("ISBN ile ara") açıyor.
+- `ShelfSearchTest` 6 senaryo (ASCII yolda çalıştırılmalı; Türkçe karakterli Windows yolunda `ClassNotFoundException`).
 
 ---
 

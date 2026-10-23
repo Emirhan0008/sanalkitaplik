@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -83,7 +85,10 @@ fun Bookshelf(
     interactive: Boolean,
     onRealBookClick: (ShelfBook) -> Unit,
     onBounds: (ShelfBook, Rect) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Arama sirasinda eslesen sirtlarin anahtarlari; bos -> arama kapali. */
+    matchedKeys: Set<String> = emptySet(),
+    searching: Boolean = false
 ) {
     Box(
         modifier = modifier
@@ -108,6 +113,8 @@ fun Bookshelf(
                         interactive = interactive,
                         onRealBookClick = onRealBookClick,
                         onBounds = onBounds,
+                        matchedKeys = matchedKeys,
+                        searching = searching,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -262,6 +269,8 @@ private fun ShelfRowView(
     interactive: Boolean,
     onRealBookClick: (ShelfBook) -> Unit,
     onBounds: (ShelfBook, Rect) -> Unit,
+    matchedKeys: Set<String>,
+    searching: Boolean,
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -288,6 +297,7 @@ private fun ShelfRowView(
                 ) {
                     row.books.forEach { book ->
                         val factor = (book.heightDp / row.heightDp).coerceIn(0.86f, 1f)
+                        val matched = searching && book.key in matchedKeys
                         BookSpine(
                             book = book,
                             onClick = { if (book.isReal) onRealBookClick(book) },
@@ -295,6 +305,8 @@ private fun ShelfRowView(
                             heightDpOverride = contentHeight * factor,
                             interactive = interactive,
                             fillWidth = true,
+                            matched = matched,
+                            dimmed = searching && !matched,
                             modifier = Modifier.weight(book.widthDp.coerceAtLeast(2f))
                         )
                     }
@@ -352,7 +364,11 @@ fun BookSpine(
     modifier: Modifier = Modifier,
     heightDpOverride: Dp? = null,
     interactive: Boolean = true,
-    fillWidth: Boolean = false
+    fillWidth: Boolean = false,
+    /** Arama eslesmesi: altin cerceve. */
+    matched: Boolean = false,
+    /** Arama sirasinda eslesmeyen sirtlar geri plana cekilir. */
+    dimmed: Boolean = false
 ) {
     val seed = abs(book.colorSeed) % SpineColors.size
     val base = Color(SpineColors[seed])
@@ -377,10 +393,24 @@ fun BookSpine(
             .graphicsLayer {
                 rotationZ = tilt
                 transformOrigin = TransformOrigin(0.5f, 1f)
+                if (matched) {
+                    scaleX = 1.05f
+                    scaleY = 1.05f
+                }
             }
             .onGloballyPositioned { onBounds(it.boundsInRoot()) }
             .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
             .background(base)
+            .drawWithContent {
+                drawContent()
+                if (dimmed) {
+                    // Eslesmeyen sirtlar karartilir (rafin arkasina gomulur).
+                    drawRect(color = Color(0x8C211409))
+                }
+                if (matched) {
+                    drawRect(color = GoldBright, style = Stroke(width = 5f))
+                }
+            }
             .then(if (book.isReal && interactive) Modifier.clickable { onClick() } else Modifier)
     ) {
         // cilt yuzeyi: ust isik, alt golge

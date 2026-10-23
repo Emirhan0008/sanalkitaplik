@@ -30,17 +30,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +53,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -74,6 +79,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -84,6 +90,7 @@ import com.ender.kitaplik.data.normalizeIsbn
 import com.ender.kitaplik.ui.shelf.Bookshelf
 import com.ender.kitaplik.ui.shelf.ShelfBook
 import com.ender.kitaplik.ui.shelf.buildFittedShelves
+import com.ender.kitaplik.ui.shelf.rankMatches
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -132,6 +139,18 @@ fun LibraryRoot() {
     var phase by remember { mutableStateOf(Phase.Idle) }
     var animJob by remember { mutableStateOf<Job?>(null) }
     val progress = remember { Animatable(0f) }
+
+    var searching by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val searchMatches = remember(books, query) {
+        if (query.isBlank()) emptyList() else rankMatches(books, query)
+    }
+    val matchedKeys = remember(searchMatches) { searchMatches.map { it.key }.toSet() }
+
+    val closeSearch: () -> Unit = {
+        searching = false
+        query = ""
+    }
 
     val target = targetCoverRect()
 
@@ -258,8 +277,11 @@ fun LibraryRoot() {
         }
     }
 
-    BackHandler(enabled = phase != Phase.Idle || scannerOpen || pending != null || manualEntry) {
+    BackHandler(
+        enabled = phase != Phase.Idle || scannerOpen || pending != null || manualEntry || searching
+    ) {
         when {
+            searching -> closeSearch()
             pending != null -> pending = null
             manualEntry -> manualEntry = false
             scannerOpen -> scannerOpen = false
@@ -294,13 +316,41 @@ fun LibraryRoot() {
                         ShelfHeader(
                             realCount = books.size,
                             spineCount = shelfRows.sumOf { it.books.size },
-                            onScan = { scannerOpen = true }
+                            onScan = { scannerOpen = true },
+                            searching = searching,
+                            query = query,
+                            onQueryChange = { query = it },
+                            onToggleSearch = {
+                                if (searching) closeSearch() else searching = true
+                            },
+                            onSubmit = {
+                                val first = searchMatches.firstOrNull()
+                                if (first != null) {
+                                    closeSearch()
+                                    shelfByIsbn[first.key]?.let(reveal)
+                                } else {
+                                    scope.launch {
+                                        val result = snackbarHost.showSnackbar(
+                                            message = "Kütüphanende bulunamadı",
+                                            actionLabel = "ISBN ile ekle",
+                                            withDismissAction = true,
+                                            duration = SnackbarDuration.Short
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            closeSearch()
+                                            manualEntry = true
+                                        }
+                                    }
+                                }
+                            }
                         )
                         Bookshelf(
                             rows = shelfRows,
                             interactive = phase == Phase.Idle,
                             onRealBookClick = reveal,
                             onBounds = { book, rect -> bounds[book.key] = rect },
+                            matchedKeys = if (searching) matchedKeys else emptySet(),
+                            searching = searching && query.isNotBlank(),
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
@@ -384,7 +434,71 @@ fun LibraryRoot() {
 }
 
 @Composable
-private fun ShelfHeader(realCount: Int, spineCount: Int, onScan: () -> Unit) {
+private fun ShelfHeader(
+    realCount: Int,
+    spineCount: Int,
+    onScan: () -> Unit,
+    searching: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onToggleSearch: () -> Unit,
+    onSubmit: () -> Unit
+) {
+    // Arama modunda baslik alani ayni yukseklikte kalir; raf yer degistirmez.
+    if (searching) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(76.dp)
+                .padding(start = 16.dp, end = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+                placeholder = {
+                    Text(
+                        "Kitap veya yazar ara",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1
+                    )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                textStyle = MaterialTheme.typography.bodyMedium,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = Color(0xFF8A6A48)
+                    )
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color(0xFFFFFBF3),
+                    unfocusedContainerColor = Color(0xFFFFFBF3),
+                    focusedBorderColor = Color(0xFFB08A55),
+                    unfocusedBorderColor = Color(0x336B4A2F),
+                    focusedTextColor = Color(0xFF3A2E24),
+                    unfocusedTextColor = Color(0xFF3A2E24),
+                    cursorColor = Color(0xFF8A5A2B)
+                )
+            )
+            Spacer(Modifier.width(2.dp))
+            IconButton(onClick = onToggleSearch) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Aramayı kapat",
+                    tint = Color(0xFF6B4A2F)
+                )
+            }
+        }
+        return
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -394,19 +508,41 @@ private fun ShelfHeader(realCount: Int, spineCount: Int, onScan: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(
                 text = "Ender Kütüphane",
-                style = MaterialTheme.typography.displaySmall
+                style = MaterialTheme.typography.displaySmall,
+                maxLines = 1
             )
             Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Rafta $spineCount cilt · kütüphanende $realCount kitap",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "Rafta $spineCount cilt · kütüphanende $realCount kitap",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(Color(0x1F6B4A2F))
+                        .clickable(onClick = onToggleSearch),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = "Kitaplıkta ara",
+                        modifier = Modifier.size(15.dp),
+                        tint = Color(0xFF6B4A2F)
+                    )
+                }
+            }
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(8.dp))
         FilledTonalIconButton(
             onClick = onScan,
-            modifier = Modifier.size(52.dp),
+            modifier = Modifier.size(48.dp),
             colors = IconButtonDefaults.filledTonalIconButtonColors(
                 containerColor = Color(0xFFEADCC4),
                 contentColor = Color(0xFF6B4A2F)
@@ -415,7 +551,7 @@ private fun ShelfHeader(realCount: Int, spineCount: Int, onScan: () -> Unit) {
             Icon(
                 imageVector = Icons.Rounded.QrCodeScanner,
                 contentDescription = "Tara",
-                modifier = Modifier.size(26.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
     }

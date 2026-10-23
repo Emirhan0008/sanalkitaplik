@@ -14,6 +14,26 @@ Ana ekranda **tek bakışta görünen ahşap kitaplık** (180 sırt, kaydırma y
 
 Başlıktaki **Tara** düğmesi barkod tarayıcısını açar (CameraX + ML Kit, çevrimdışı).
 
+## Rafta arama
+
+Başlığın altındaki küçük **arama** ikonu rafın üstünde ince bir arama çubuğu açar; raf boyutu ve
+sırt genişlikleri değişmez (kaydırma gelmez). Yazarken:
+
+- Türkçe/aksan duyarsız eşleşme (`foldTr`: `kurk` = `Kürk`, `ince` = `İnce`), başlıkta eşleşen
+  kitaplar önce sıralanır.
+- Eşleşen sırtlar **altın çerçeve + hafif büyüme**, eşleşmeyenler karartılır.
+- Enter veya sırta dokunma → mevcut uçuş animasyonuyla detay açılır.
+- Sonuç yoksa "Kütüphanende bulunamadı" snackbar'ı **"ISBN ile ekle"** aksiyonuyla elle ISBN
+  diyaloğunu açar.
+- Geri tuşu aramayı kapatır ve rafı eski haline döndürür.
+
+## Kitap silme
+
+Detay ekranında **"Kitaplıktan çıkar"** (ikincil, dolgusuz buton) onay diyaloğu açar; onaydan
+sonra kitap raftan ve "Kitaplarım" listesinden düşer, kapak dosyası silinir. Snackbar'daki
+**"Geri al"** aynı ISBN'i geri yükler ve sırt eski yerine döner. Silme sırasında uçuş animasyonu
+tetiklenmez.
+
 ## Akış
 
 1. Barkod okunur → EAN-13/ISBN-10 doğrulanır ve ISBN-13'e normalize edilir.
@@ -51,6 +71,7 @@ data/
 ui/
   LibraryRoot.kt                        sekmeler, faz makinesi (Idle/Flying/Detail/Closing)
   shelf/ShelfModels.kt                  sırt üretimi + satırlara tam oturan yerleşim
+  shelf/ShelfSearch.kt                  Türkçe duyarsız arama normalizasyonu + sıralama
   shelf/Bookshelf.kt                    ahşap kasa, raflar, sırt çizimi
   FlightLayer.kt                        sırt → kapak animasyonu
   BookDetailLayer.kt                    tam ekran detay

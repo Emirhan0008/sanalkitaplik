@@ -43,19 +43,37 @@ class BookMetadataSource(
     @Volatile
     private var googleDownUntil = 0L
 
+    /** Son Google hatasi (Ayalar ekraninda gosterilir); basariyla temizlenir. */
+    @Volatile
+    private var googleLastError: String? = null
+
     private fun googleAvailable() = System.currentTimeMillis() >= googleDownUntil
 
-    private fun markGoogleDown() {
+    private fun markGoogleDown(reason: String?) {
         googleDownUntil = System.currentTimeMillis() + 10 * 60_000L
+        googleLastError = reason?.take(80) ?: "bilinmeyen hata"
     }
+
+    /** Kaynak sagligi ozeti (Ayalar sekmesi). */
+    data class SourceHealth(
+        val googleDownUntil: Long,
+        val googleLastError: String?
+    )
+
+    fun health(): SourceHealth = SourceHealth(googleDownUntil, googleLastError)
 
     suspend fun fetch(isbn: String, withCover: Boolean = true): RemoteMeta? = withContext(Dispatchers.IO) {
         // 1) Birincil: Google Books (devre disiysa dogrudan Open Library)
         val google = if (googleAvailable()) {
             runCatching { fromGoogleBooks(isbn) }
-                .onFailure { markGoogleDown() }
+                .onFailure { markGoogleDown(it.message) }
                 .getOrNull()
         } else null
+        if (google != null && google.title.isNotBlank()) {
+            // Basarili sorgu: devre kesici durumu ve son hata temizlenir.
+            googleLastError = null
+            googleDownUntil = 0L
+        }
         // 2) Yedek: Google bos/eksik donerse Open Library
         val needsMore = google == null || google.title.isBlank()
         val openLibrary = if (needsMore) {
@@ -127,7 +145,7 @@ class BookMetadataSource(
                         normalizeIsbn(ids.getJSONObject(j).optString("identifier"))?.let { found += it }
                     }
                 }
-            }.onFailure { markGoogleDown() }
+            }.onFailure { markGoogleDown(it.message) }
 
             runCatching {
                 val query = buildString {

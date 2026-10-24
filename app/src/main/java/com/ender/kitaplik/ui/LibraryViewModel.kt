@@ -53,4 +53,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun importBackup(uri: android.net.Uri): com.ender.kitaplik.data.LibraryBackup.ImportReport =
         repo.importBackup(uri)
+
+    // --------------------------------------------------------------- ayarlar
+
+    fun sourceHealth(): com.ender.kitaplik.data.BookMetadataSource.SourceHealth = repo.sourceHealth()
+
+    /** Kapak onbellegini siler; donus: silinen dosya sayisi. */
+    suspend fun clearCoverCache(): Int = repo.clearCoverCache()
 }

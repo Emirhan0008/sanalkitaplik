@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,6 +71,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -97,6 +99,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ender.kitaplik.BuildConfig
 import com.ender.kitaplik.data.BookEntity
 import com.ender.kitaplik.data.RemoteMeta
 import com.ender.kitaplik.data.normalizeIsbn
@@ -107,6 +110,7 @@ import com.ender.kitaplik.ui.shelf.buildFittedShelves
 import com.ender.kitaplik.ui.shelf.rankMatches
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.min
@@ -177,17 +181,31 @@ fun LibraryRoot() {
         importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
     }
 
+    // Ayarlar sekmesi: kaynak sagligi. Devre kesici dolunca durum otomatik
+    // "aktif" olur; 15 sn'de bir yeniden okunur.
+    var sourceHealth by remember { mutableStateOf(vm.sourceHealth()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15_000)
+            sourceHealth = vm.sourceHealth()
+        }
+    }
+    val versionLabel = remember { "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})" }
+
     var tab by rememberSaveable { mutableStateOf(0) }
-    // Sekme gecisi gercek capraz solma: 0 = Raf, 1 = Kitaplarim.
+    // Sekme gecisi gercek capraz solma: 0 = Raf, 1 = Kitaplarim, 2 = Ayarlar.
     // Raf alt agaci HIC dispose edilmez (180 sirt yeniden kurulunca ~1 sn ekran
-    // bos kaliyordu); yalnizca alfa ile solar. Liste katmani tabProgress > 0
-    // oldugunda ayakta kalir, gecis bitince Raf sekmesinde atilir.
-    // Baslangic degeri kayitli sekmeden: geri yuklemede ikisi birbirini tutsun.
-    val tabProgress = remember { Animatable(if (tab == 1) 1f else 0f) }
+    // bos kaliyordu); yalnizca alfa ile solar. Diger katmanlar kendi alfalari
+    // dustugunde atilir. Dokunmayi yalniz tam gorunur (alfa = 1) katman alir.
+    val tabAlphas = remember { List(3) { Animatable(if (it == tab) 1f else 0f) } }
     val switchTab: suspend (Int) -> Unit = switchTab@{ newTab ->
         if (newTab == tab) return@switchTab
+        val oldTab = tab
         tab = newTab
-        tabProgress.animateTo(if (newTab == 1) 1f else 0f, tween(220))
+        coroutineScope {
+            launch { tabAlphas[oldTab].animateTo(0f, tween(160)) }
+            launch { tabAlphas[newTab].animateTo(1f, tween(220)) }
+        }
     }
     var scannerOpen by rememberSaveable { mutableStateOf(false) }
     var manualEntry by remember { mutableStateOf(false) }
@@ -438,7 +456,7 @@ fun LibraryRoot() {
                     Column(
                         Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = 1f - tabProgress.value }
+                            .graphicsLayer { alpha = tabAlphas[0].value }
                     ) {
                         ShelfHeader(
                             realCount = books.size,
@@ -475,9 +493,9 @@ fun LibraryRoot() {
                         )
                         ShelfSection(
                             visual = shelfVisual,
-                            // Raf tamamen gorunurken dokunulabilir; liste ustteyken
+                            // Raf tamamen gorunurken dokunulabilir; baska sekmedeyken
                             // alfa 0 olsa bile dokunmayi alttaki sirlar almasin.
-                            interactive = tabProgress.value == 0f,
+                            interactive = tabAlphas[0].value == 1f,
                             onReveal = stableReveal,
                             onBounds = stableBounds
                         )
@@ -485,25 +503,49 @@ fun LibraryRoot() {
 
                     // Liste katmani yalnizca geciste / Kitaplarim sekmesinde ayakta;
                     // ustte durur, gecis boyunca dokunmalari o alir.
-                    if (tab == 1 || tabProgress.value > 0f) {
+                    if (tab == 1 || tabAlphas[1].value > 0f) {
                         BookListTab(
                             books = books,
                             // Liste tamamen oturunca dokunulabilir; solma sirasinda
                             // dokunmalar gecisi bolmesin.
-                            interactive = tabProgress.value == 1f,
+                            interactive = tabAlphas[1].value == 1f,
                             onBookClick = { entity ->
                                 scope.launch {
                                     // Listeden rafa donuste solma yok: secilen kitap
                                     // kendi rafinda hemen gorunsun.
+                                    tabAlphas[1].snapTo(0f)
+                                    tabAlphas[0].snapTo(1f)
                                     tab = 0
-                                    tabProgress.snapTo(0f)
                                     delay(120)
                                     shelfByIsbn[entity.isbn]?.let(reveal)
                                 }
                             },
                             modifier = Modifier
                                 .fillMaxSize()
-                                .graphicsLayer { alpha = tabProgress.value }
+                                .graphicsLayer { alpha = tabAlphas[1].value }
+                        )
+                    }
+
+                    // Ayarlar katmani ayni kuralla: yalnizca geciste / sekmedeyken.
+                    if (tab == 2 || tabAlphas[2].value > 0f) {
+                        SettingsTab(
+                            health = sourceHealth,
+                            apiKeyConfigured = BuildConfig.GBOOKS_KEY.isNotBlank(),
+                            versionLabel = versionLabel,
+                            onClearCache = {
+                                scope.launch {
+                                    val deleted = vm.clearCoverCache()
+                                    snackbarHost.showSnackbar(
+                                        if (deleted == 0) "Önbellek zaten boş"
+                                        else "$deleted kapak silindi"
+                                    )
+                                }
+                            },
+                            onExport = requestExport,
+                            onImport = requestImport,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = tabAlphas[2].value }
                         )
                     }
                 }
@@ -810,6 +852,13 @@ private fun LibraryBar(tab: Int, onTab: (Int) -> Unit) {
             onClick = { onTab(1) },
             icon = { Icon(Icons.AutoMirrored.Rounded.List, contentDescription = null) },
             label = { Text("Kitaplarım") },
+            colors = navColors()
+        )
+        NavigationBarItem(
+            selected = tab == 2,
+            onClick = { onTab(2) },
+            icon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+            label = { Text("Ayarlar") },
             colors = navColors()
         )
     }

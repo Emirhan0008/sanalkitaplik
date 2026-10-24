@@ -30,6 +30,21 @@ class LibraryRepository(
 
     val books: Flow<List<BookEntity>> = dao.observeAll()
 
+    /** Ayarlar sekmesi icin kaynak sagligi ozeti (Google devre kesici + son hata). */
+    fun sourceHealth(): BookMetadataSource.SourceHealth = metadataSource.health()
+
+    /**
+     * Kapak onbellegini siler (dosyalar + coverPath yollari). Donus: silinen dosya sayisi.
+     * Yenileri kapak on indirmesi zamanla geri indirir.
+     */
+    suspend fun clearCoverCache(): Int = withContext(Dispatchers.IO) {
+        val files = coversDir.listFiles().orEmpty()
+        var deleted = 0
+        files.forEach { file -> if (file.isFile && file.delete()) deleted++ }
+        dao.clearCoverPaths()
+        deleted
+    }
+
     suspend fun find(isbn: String): BookEntity? = dao.findByIsbn(isbn)
 
     /** Kullanici kitabi kaldirir; kapak dosyasi da silinir. */

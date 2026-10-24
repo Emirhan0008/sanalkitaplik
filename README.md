@@ -114,6 +114,20 @@ Kurallar:
 - **Sekme geçişi:** Raf ↔ Kitaplarım arasında çapraz solma (~220 ms). Raf katmanı hiç
   dispose edilmez (180 sırt yeniden kurulmaz); yalnız tam görünür katman dokunmayı alır.
 
+## Ayarlar sekmesi
+
+Alt bardaki üçüncü sekme kaynak sağlığını ve bakım işlerini gösterir:
+
+- **Google Books** — "aktif" veya "devre dışı · X dk" (10 dk devre kesici); alt satırda
+  son hata (ör. `HTTP 503 ...`). **Open Library** satırı Google kapalıyken
+  "kullanılıyor" olarak güncellenir. Devre kesici süresi dolunca durum kendiliğinden
+  "aktif"e döner (15 sn'de bir yenilenir).
+- **Google Books API anahtarı** — yalnız `BuildConfig.GBOOKS_KEY` tanımlıysa gösterilir.
+- **Önbelleği temizle** — kapak görsellerini siler (`covers/` + `coverPath`'ler);
+  yenileri kapak ön indirmesiyle zamanla geri gelir.
+- **Yedek al / Yedekten yükle** — Faz 5'teki yedekleme akışına bağlanır.
+- **Sürüm** — `BuildConfig.VERSION_NAME (VERSION_CODE)`.
+
 ## Katmanlar
 
 ```
@@ -135,6 +149,7 @@ ui/
   BookCover.kt                          kapak (gerçek görsel yoksa üretilmiş kapak)
   ScannerOverlay.kt                     kamera + barkod
   Haptics.kt                            kısa haptik "tik" yardımcısı
+  SettingsTab.kt                        Ayarlar sekmesi (kaynak sağlığı, bakım, sürüm)
 ```
 
 ## Çalıştırma

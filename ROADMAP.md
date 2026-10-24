@@ -224,7 +224,7 @@ solmanın videosu fiziksel telefon (PFR4VGZTTWNBEUCA) USB'ye geri takılınca do
 
 ---
 
-## Faz 7 — Ayarlar ve kaynak sağlığı
+## Faz 7 — Ayarlar ve kaynak sağlığı (⏳ cihaz doğrulaması bekliyor)
 
 **Neden:** Google Books şu an arızalı; kullanıcı hangi kaynağın kullanıldığını görebilmeli.
 
@@ -239,6 +239,20 @@ solmanın videosu fiziksel telefon (PFR4VGZTTWNBEUCA) USB'ye geri takılınca do
 2. Devre kesici süresi dolunca durum otomatik "aktif" olur.
 
 **Tahmin:** 1 oturum · **Risk:** düşük
+
+Kanıt (kod tamamlandı, derleme temiz):
+- `BookMetadataSource`: `health()` ile `googleDownUntil` + `googleLastError` dışarı açıldı;
+  hata mesajı (`HTTP 503 ...`) kaydediliyor, Google başarılı sorguda temizleniyor.
+- `SettingsTab.kt`: KAYNAKLAR (Google Books / Open Library / API anahtarı satırı yalnız
+  anahtar tanımlıysa), BAKIM (önbelleği temizle, yedek al, yedekten yükle), UYGULAMA (sürüm).
+- Durum etiketi 15 sn'de bir yeniden okunur → devre kesici dolunca kendiliğinden
+  "aktif"e döner (2. kabul kriteri).
+- Önbellek temizliği: `covers/` dosyaları silinir + `coverPath`'ler NULL'lanır;
+  yenileri kapak ön indirmesiyle geri gelir.
+- Üçüncü sekme, çapraz solma yapısına eklendi: her sekmenin kendi alfa'sı var,
+  raf katmanı yine hiç dispose edilmez; yalnız tam görünür katman dokunmayı alır.
+
+Açık: 2 kabul kriterinin cihazda gözle doğrulaması (fiziksel telefon / uygun emülatör).
 
 ---
 

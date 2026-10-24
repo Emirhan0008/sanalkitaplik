@@ -40,4 +40,8 @@ interface BookDao {
 
     @Query("DELETE FROM books WHERE isbn = :isbn")
     suspend fun delete(isbn: String)
+
+    /** Onbellek temizligi: kapak yollarini sifirlar (dosyalar ayrica silinir). */
+    @Query("UPDATE books SET coverPath = NULL")
+    suspend fun clearCoverPaths()
 }

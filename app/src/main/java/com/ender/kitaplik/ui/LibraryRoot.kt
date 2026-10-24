@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -426,7 +427,9 @@ fun LibraryRoot() {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Scaffold(
             containerColor = Color.Transparent,
-            snackbarHost = { SnackbarHost(snackbarHost) },
+            // Snackbar klavyenin ustunde kalmali: klavye acikken eylem dugmeleri
+            // (ör. "ISBN ile ekle") IME'nin arkasinda kaliyordu.
+            snackbarHost = { SnackbarHost(snackbarHost, modifier = Modifier.imePadding()) },
             bottomBar = {
                 // Alt bar her zaman olculur, sadece alfa ile gizlenir. Kosullu olarak
                 // kaldirildiginda Scaffold innerPadding'i degisiyor, tum ekran (180 sirt)
@@ -714,6 +717,20 @@ private fun ShelfHeader(
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+                // Alanin sonunda yalnizca ikonlu kucuk arama dugmesi (yazi yok).
+                trailingIcon = {
+                    IconButton(
+                        onClick = onSubmit,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = "Ara",
+                            modifier = Modifier.size(19.dp),
+                            tint = Color(0xFF8A5A2B)
+                        )
+                    }
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = Color(0xFFFFFBF3),
                     unfocusedContainerColor = Color(0xFFFFFBF3),

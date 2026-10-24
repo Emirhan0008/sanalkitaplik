@@ -8,6 +8,7 @@ import com.ender.kitaplik.data.BookEntity
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class LibraryViewModel(app: Application) : AndroidViewModel(app) {
@@ -20,6 +21,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             repo.seedIfEmpty()
+            // Kunye kuyrugu ve kapak on indirmesi ilk kareyi beklesin:
+            // acilista DB + ag isi ilk cizimle yarismasin.
+            delay(1_500)
             repo.enqueueEnrich()
             repo.prefetchCovers()
         }

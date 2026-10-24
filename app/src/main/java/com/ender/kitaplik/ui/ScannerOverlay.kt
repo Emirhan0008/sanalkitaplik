@@ -98,7 +98,11 @@ fun ScannerOverlay(
 
     Box(Modifier.fillMaxSize().background(Color(0xFF080706))) {
         if (hasPermission) {
-            CameraScannerPreview(onIsbn = onIsbn)
+            CameraScannerPreview(onIsbn = { isbn ->
+                // Barkod okundugunda kisa tik: tarama basarisini elle hissettirir.
+                context.tickHaptic(26)
+                onIsbn(isbn)
+            })
         } else {
             Column(
                 modifier = Modifier

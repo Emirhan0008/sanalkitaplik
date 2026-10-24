@@ -104,6 +104,16 @@ Kurallar:
 - Geçersiz ISBN'li kayıtlar atlanır; aynı ISBN dosya içinde birden fazlaysa ilki tutulur.
 - İçe aktarılan künyesi eksik kitaplar WorkManager kuyruğuna girer.
 
+## Cila: haptik ve görsel dokunuşlar
+
+- **Haptik:** barkod okununca 26 ms, kitap rafdan kalkarken 24 ms "tik" (`ui/Haptics.kt`,
+  `VIBRATE` izni). Kuvvetli/uzun titreme kullanılmaz.
+- **Detay açılışı:** içerik alfa ile belirirken yumuşak yay (`spring`) ile yerine oturur;
+  kapak gölgesi GPU gölge katmanı yerine radyal gradient ile çizilir (animasyonda kare kilidini önler).
+- **Vinyet:** raf kasasının kenarları hafifçe kararır, merkez ve sırt yazıları olduğu gibi kalır.
+- **Sekme geçişi:** Raf ↔ Kitaplarım arasında çapraz solma (~220 ms). Raf katmanı hiç
+  dispose edilmez (180 sırt yeniden kurulmaz); yalnız tam görünür katman dokunmayı alır.
+
 ## Katmanlar
 
 ```
@@ -124,6 +134,7 @@ ui/
   BookDetailLayer.kt                    tam ekran detay
   BookCover.kt                          kapak (gerçek görsel yoksa üretilmiş kapak)
   ScannerOverlay.kt                     kamera + barkod
+  Haptics.kt                            kısa haptik "tik" yardımcısı
 ```
 
 ## Çalıştırma

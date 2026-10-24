@@ -183,7 +183,7 @@ Kanıt (fiziksel telefon M2101K7BG, üç kabul kriteri de geçti):
 
 ---
 
-## Faz 6 — Haptik ve cila
+## Faz 6 — Haptik ve cila (⏳ cihaz doğrulaması bekliyor)
 
 **Neden:** Uygulama işlevsel ama "pahalı" hissettirmiyor.
 
@@ -198,6 +198,29 @@ Kanıt (fiziksel telefon M2101K7BG, üç kabul kriteri de geçti):
 2. `Choreographer` atlanan kare oranı < %1 (raf açılışı ve uçuş animasyonu).
 
 **Tahmin:** 1 oturum · **Risk:** düşük
+
+Kanıt (fiziksel telefon M2101K7BG):
+- **Haptik:** `ui/Haptics.kt` `tickHaptic()` (VibrationEffect.createOneShot, VIBRATE izni);
+  barkod okunuşunda 26 ms / rafdan kalkışta 24 ms. (Hissiyat cihaz sahibince onaylanacak.)
+- **Yay + gölge:** detay içeriği `spring(0.82, 220)` ile yerine oturur; kapak gölgesi
+  `shadowElevation` yerine yumuşak radyal gradient (GPU gölge katmanı animasyonda
+  kare kilitliyordu).
+- **Vinyet:** piksel karşılaştırmasıyla doğrulandı — köşeler ~%8 koyulaştı
+  (ör. sol üst 99→91), merkez birebir aynı (108→108); sırtlar okunaklı kalmaya devam ediyor.
+- **Soğuk açılış:** 5 koşu 3.63–3.65 sn (`am start -W`, debug APK). İlk kareyle yarışmasın
+  diye `enqueueEnrich()` + `prefetchCovers()` 1.5 sn ertelendi.
+- **Uçuş/detay:** ekran kaydı kare kare incelendi; sırt → kapak dönüşümü akıcı,
+  detay krem zeminde açılıyor.
+- **Sekme çapraz solması (yeniden yapılandırıldı):** önceki "sol → değiş → gel" yapısında
+  raf dispose edildiği için Raf'a dönüşte 180 sırt ~1.1 sn yeniden kuruluyor, ekran boş
+  kalıyordu. Artık raf katmanı **hiç dispose edilmez** (yalnızca `1 − p` alfa ile solar),
+  `BookListTab` yalnız `tabProgress > 0` iken ayakta durur (`p` alfa ile, üstte);
+  iki katmanın alfası toplamı her karede 1 olduğu için boş kare matematiksel olarak yok.
+  Dokunma da kilidi: yalnız tam görünür katman dokunmayı alır (alfa 0 rafın görünmez
+  sırtları liste üstünde tıklanamasın).
+
+Açık: 2. kabul kriteri (`dumpsys gfxinfo framestats`, atlanan kare < %1) ve yeni çapraz
+solmanın videosu fiziksel telefon (PFR4VGZTTWNBEUCA) USB'ye geri takılınca doğrulanacak.
 
 ---
 

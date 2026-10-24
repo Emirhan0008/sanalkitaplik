@@ -82,10 +82,13 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -134,6 +137,7 @@ fun LibraryRoot() {
     val books by vm.books.collectAsStateWithLifecycle()
 
     val scope = rememberCoroutineScope()
+    val appContext = LocalContext.current
     val snackbarHost = remember { SnackbarHostState() }
 
     // Yedekleme: ACTION_CREATE_DOCUMENT / ACTION_OPEN_DOCUMENT (paylasim menusu degil).
@@ -174,6 +178,17 @@ fun LibraryRoot() {
     }
 
     var tab by rememberSaveable { mutableStateOf(0) }
+    // Sekme gecisi gercek capraz solma: 0 = Raf, 1 = Kitaplarim.
+    // Raf alt agaci HIC dispose edilmez (180 sirt yeniden kurulunca ~1 sn ekran
+    // bos kaliyordu); yalnizca alfa ile solar. Liste katmani tabProgress > 0
+    // oldugunda ayakta kalir, gecis bitince Raf sekmesinde atilir.
+    // Baslangic degeri kayitli sekmeden: geri yuklemede ikisi birbirini tutsun.
+    val tabProgress = remember { Animatable(if (tab == 1) 1f else 0f) }
+    val switchTab: suspend (Int) -> Unit = switchTab@{ newTab ->
+        if (newTab == tab) return@switchTab
+        tab = newTab
+        tabProgress.animateTo(if (newTab == 1) 1f else 0f, tween(220))
+    }
     var scannerOpen by rememberSaveable { mutableStateOf(false) }
     var manualEntry by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<PendingLookup?>(null) }
@@ -230,6 +245,8 @@ fun LibraryRoot() {
     val reveal: (ShelfBook) -> Unit = reveal@{ shelfBook ->
         if (phase != Phase.Idle) return@reveal
         phase = Phase.Flying
+        // Kitap rafdan kalkarken hafif tik: ucusun basladigini hissettirir.
+        appContext.tickHaptic(24)
         flightArmed = false
         flightBook = shelfBook
         flyTarget = target.snapped()
@@ -401,7 +418,10 @@ fun LibraryRoot() {
                         alpha = if (phase == Phase.Idle && !scannerOpen) 1f else 0f
                     }
                 ) {
-                    LibraryBar(tab = tab, onTab = { tab = it })
+                    LibraryBar(
+                        tab = tab,
+                        onTab = { newTab -> scope.launch { switchTab(newTab) } }
+                    )
                 }
             }
         ) { innerPadding ->
@@ -409,13 +429,17 @@ fun LibraryRoot() {
                 Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+            ) {
+                Box(Modifier.weight(1f)) {
+                    // Raf katmani: hic dispose edilmez, yalnizca alfa ile solar.
                     // Ucus sirasinda raf bir RenderNode'a kaydedilir ve her karede
                     // yeniden cizilmez: 180 sirt (Canvas + donuk metin) cizimi kare
                     // butcesini asiyordu. Raf gorunur kalir, overlay uzerine biner.
-                    .graphicsLayer { }
-            ) {
-                when (tab) {
-                    0 -> {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = 1f - tabProgress.value }
+                    ) {
                         ShelfHeader(
                             realCount = books.size,
                             spineCount = shelfRows.sumOf { it.books.size },
@@ -451,20 +475,37 @@ fun LibraryRoot() {
                         )
                         ShelfSection(
                             visual = shelfVisual,
+                            // Raf tamamen gorunurken dokunulabilir; liste ustteyken
+                            // alfa 0 olsa bile dokunmayi alttaki sirlar almasin.
+                            interactive = tabProgress.value == 0f,
                             onReveal = stableReveal,
                             onBounds = stableBounds
                         )
                     }
-                    else -> BookListTab(
-                        books = books,
-                        onBookClick = { entity ->
-                            tab = 0
-                            scope.launch {
-                                delay(120)
-                                shelfByIsbn[entity.isbn]?.let(reveal)
-                            }
-                        }
-                    )
+
+                    // Liste katmani yalnizca geciste / Kitaplarim sekmesinde ayakta;
+                    // ustte durur, gecis boyunca dokunmalari o alir.
+                    if (tab == 1 || tabProgress.value > 0f) {
+                        BookListTab(
+                            books = books,
+                            // Liste tamamen oturunca dokunulabilir; solma sirasinda
+                            // dokunmalar gecisi bolmesin.
+                            interactive = tabProgress.value == 1f,
+                            onBookClick = { entity ->
+                                scope.launch {
+                                    // Listeden rafa donuste solma yok: secilen kitap
+                                    // kendi rafinda hemen gorunsun.
+                                    tab = 0
+                                    tabProgress.snapTo(0f)
+                                    delay(120)
+                                    shelfByIsbn[entity.isbn]?.let(reveal)
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = tabProgress.value }
+                        )
+                    }
                 }
             }
         }
@@ -553,17 +594,35 @@ private data class ShelfVisual(
 @Composable
 private fun ColumnScope.ShelfSection(
     visual: ShelfVisual,
+    interactive: Boolean,
     onReveal: (ShelfBook) -> Unit,
     onBounds: (ShelfBook, Rect) -> Unit
 ) {
     Bookshelf(
         rows = visual.rows,
-        interactive = true,
+        interactive = interactive,
         onRealBookClick = onReveal,
         onBounds = onBounds,
         matchedKeys = visual.matched,
         searching = visual.searching,
-        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 4.dp)
+        modifier = Modifier
+            .weight(1f)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            // Raf kasasinin kenarlarina yumusak vinyet: gozu merkeze ceker,
+            // merkezdeki sirlari karartmaz (cizim sonrasi tek kat karartma).
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    Brush.radialGradient(
+                        0.0f to Color.Transparent,
+                        0.52f to Color.Transparent,
+                        1.0f to Color(0x33000000),
+                        center = center,
+                        // Koseye kadar tamamlanan yaricap: kenarlar gercekten kararir.
+                        radius = kotlin.math.hypot(center.x, center.y)
+                    )
+                )
+            }
     )
 }
 
@@ -766,10 +825,15 @@ private fun navColors() = NavigationBarItemDefaults.colors(
 )
 
 @Composable
-private fun BookListTab(books: List<BookEntity>, onBookClick: (BookEntity) -> Unit) {
+private fun BookListTab(
+    books: List<BookEntity>,
+    onBookClick: (BookEntity) -> Unit,
+    interactive: Boolean = true,
+    modifier: Modifier = Modifier
+) {
     if (books.isEmpty()) {
         Column(
-            Modifier
+            modifier
                 .fillMaxSize()
                 .padding(32.dp),
             verticalArrangement = Arrangement.Center,
@@ -788,6 +852,7 @@ private fun BookListTab(books: List<BookEntity>, onBookClick: (BookEntity) -> Un
     }
 
     LazyColumn(
+        modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 140.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -797,7 +862,7 @@ private fun BookListTab(books: List<BookEntity>, onBookClick: (BookEntity) -> Un
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { onBookClick(book) }
+                    .clickable(enabled = interactive) { onBookClick(book) }
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

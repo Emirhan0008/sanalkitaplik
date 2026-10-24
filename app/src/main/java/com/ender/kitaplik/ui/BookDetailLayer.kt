@@ -1,6 +1,7 @@
 package com.ender.kitaplik.ui
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -78,6 +79,13 @@ fun BookDetailLayer(
         animationSpec = tween(durationMillis = if (visible) 260 else 120),
         label = "detailContentAlpha"
     )
+    // Icerik alfasi yumusak gecis, konumu ise yay ile yerine oturur: acilista
+    // asagidan hafif yukari sicrar (kapanista duzgun geri iner).
+    val contentSpring by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = 220f),
+        label = "detailContentSpring"
+    )
     val backdrop by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = tween(260),
@@ -132,6 +140,30 @@ fun BookDetailLayer(
         )
 
         val coverAlphaNow = coverAlpha.value
+
+        // Kapagin altindaki ince golge. GPU golge katmani (shadowElevation)
+        // animasyonda kare kilitledigi icin yumusak radyal karartma kullanildi.
+        Box(
+            Modifier
+                .offset {
+                    IntOffset(
+                        (target.left - 24f).roundToInt(),
+                        (target.top + 16f).roundToInt()
+                    )
+                }
+                .size(
+                    width = with(density) { (target.width + 48f).toDp() },
+                    height = with(density) { (target.height + 32f).toDp() }
+                )
+                .graphicsLayer { alpha = coverAlphaNow * 0.55f }
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color(0x592A1A0F), Color.Transparent),
+                        center = Offset.Unspecified
+                    ),
+                    RoundedCornerShape(46)
+                )
+        )
         BookCover(
             book = book,
             modifier = Modifier
@@ -152,7 +184,10 @@ fun BookDetailLayer(
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
                 .padding(horizontal = 30.dp)
-                .graphicsLayer { alpha = contentAlpha }
+                .graphicsLayer {
+                    alpha = contentAlpha
+                    translationY = (1f - contentSpring) * 26.dp.toPx()
+                }
         ) {
             Text(
                 text = book.title,
@@ -240,7 +275,10 @@ fun BookDetailLayer(
                 .statusBarsPadding()
                 .padding(10.dp)
                 .size(44.dp)
-                .graphicsLayer { alpha = contentAlpha }
+                .graphicsLayer {
+                    alpha = contentAlpha
+                    translationY = (1f - contentSpring) * 26.dp.toPx()
+                }
                 .clip(RoundedCornerShape(50))
                 .background(Color(0x14000000))
         ) {

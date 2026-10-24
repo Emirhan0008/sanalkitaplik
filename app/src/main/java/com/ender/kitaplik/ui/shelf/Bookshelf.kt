@@ -1,11 +1,11 @@
 package com.ender.kitaplik.ui.shelf
 
+import android.util.LruCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -22,9 +22,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -35,7 +38,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
@@ -275,55 +279,53 @@ private fun ShelfRowView(
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxWidth()) {
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            val contentHeight = maxHeight
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(ShelfBack, ShelfBackDeep),
+                        startY = 0f,
+                        endY = 700f
+                    )
+                )
+                .clipToBounds()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(row.spacingDp.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                row.books.forEach { book ->
+                    val factor = (book.heightDp / row.heightDp).coerceIn(0.86f, 1f)
+                    val matched = searching && book.key in matchedKeys
+                    BookSpine(
+                        book = book,
+                        onClick = { if (book.isReal) onRealBookClick(book) },
+                        onBounds = { rect -> if (book.isReal) onBounds(book, rect) },
+                        heightFactor = factor,
+                        interactive = interactive,
+                        fillWidth = true,
+                        matched = matched,
+                        dimmed = searching && !matched,
+                        modifier = Modifier.weight(book.widthDp.coerceAtLeast(2f))
+                    )
+                }
+            }
+
+            // rafin ic golgesi (kitap arkalarinda)
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(ShelfBack, ShelfBackDeep),
-                            startY = 0f,
-                            endY = 700f
+                            listOf(Color(0x2E21140A), Color(0x0821140A), Color(0x1F21140A))
                         )
                     )
-                    .clipToBounds()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(row.spacingDp.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    row.books.forEach { book ->
-                        val factor = (book.heightDp / row.heightDp).coerceIn(0.86f, 1f)
-                        val matched = searching && book.key in matchedKeys
-                        BookSpine(
-                            book = book,
-                            onClick = { if (book.isReal) onRealBookClick(book) },
-                            onBounds = { rect -> if (book.isReal) onBounds(book, rect) },
-                            heightDpOverride = contentHeight * factor,
-                            interactive = interactive,
-                            fillWidth = true,
-                            matched = matched,
-                            dimmed = searching && !matched,
-                            modifier = Modifier.weight(book.widthDp.coerceAtLeast(2f))
-                        )
-                    }
-                }
-
-                // rafin ic golgesi (kitap arkalarinda)
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color(0x2E21140A), Color(0x0821140A), Color(0x1F21140A))
-                            )
-                        )
-                )
-            }
+            )
         }
 
         // raf tahtasi (profilli)
@@ -373,6 +375,36 @@ private fun spineInk(base: Color, real: Boolean): Color {
     }
 }
 
+/**
+ * Sirt yazisi olcumleri surec omrulu tek bir onbellekte tutulur; kompozisyon
+ * yeniden kurulsa bile (soguk acilis, donus) metin yeniden olculmez.
+ */
+private val SpineLayoutCache = LruCache<String, TextLayoutResult>(256)
+
+private fun spineLabelLayout(
+    measurer: TextMeasurer,
+    label: String,
+    maxWidthPx: Int,
+    ink: Color,
+    real: Boolean
+): TextLayoutResult {
+    val key = "${if (real) 1 else 0}|$maxWidthPx|${ink.value}|$label"
+    SpineLayoutCache.get(key)?.let { return it }
+    val layout = measurer.measure(
+        text = label,
+        style = TextStyle(
+            color = ink,
+            fontSize = if (real) 6.sp else 5.sp,
+            fontFamily = FontFamily.Serif
+        ),
+        overflow = TextOverflow.Ellipsis,
+        maxLines = 1,
+        constraints = Constraints(maxWidth = maxWidthPx)
+    )
+    SpineLayoutCache.put(key, layout)
+    return layout
+}
+
 @Composable
 fun BookSpine(
     book: ShelfBook,
@@ -380,6 +412,8 @@ fun BookSpine(
     onBounds: (Rect) -> Unit,
     modifier: Modifier = Modifier,
     heightDpOverride: Dp? = null,
+    /** Rafta satir yuksekligine oran (0..1); heightDpOverride verilmezse kullanilir. */
+    heightFactor: Float? = null,
     interactive: Boolean = true,
     fillWidth: Boolean = false,
     /** Arama eslesmesi: altin cerceve. */
@@ -392,9 +426,15 @@ fun BookSpine(
     val labelColor = Color(LabelColors[(seed / 7) % LabelColors.size])
     val shade = base.copy(alpha = 0.38f).compositeOver(Color.Black)
     val light = base.copy(alpha = 0.18f).compositeOver(Color(0xFFE8DCC0))
-    val spineHeight = heightDpOverride ?: book.heightDp.dp
     val tilt = if (book.isReal) 0f else book.tiltDeg
     val budget = if (book.isReal) 0f else book.tiltBudgetDp.coerceAtLeast(0f)
+    val decoType = (seed / 5) % 5
+
+    val spineTitle = book.title.trim()
+    val author = book.authors.substringBefore(',').trim()
+    val label = if (author.isBlank()) spineTitle else "$spineTitle · $author"
+    val ink = spineInk(base, book.isReal)
+    val measurer = rememberTextMeasurer(cacheSize = 8)
 
     Box(
         modifier = modifier
@@ -402,7 +442,13 @@ fun BookSpine(
                 if (fillWidth) Modifier.fillMaxWidth()
                 else Modifier.width(book.widthDp.dp)
             )
-            .height(spineHeight)
+            .then(
+                when {
+                    heightDpOverride != null -> Modifier.height(heightDpOverride)
+                    heightFactor != null -> Modifier.fillMaxHeight(heightFactor)
+                    else -> Modifier.height(book.heightDp.dp)
+                }
+            )
             .padding(
                 start = if (tilt < 0f) budget.dp else 0.dp,
                 end = if (tilt > 0f) budget.dp else 0.dp
@@ -415,9 +461,140 @@ fun BookSpine(
                     scaleY = 1.05f
                 }
             }
-            .onGloballyPositioned { onBounds(it.boundsInRoot()) }
+            .then(
+                if (book.isReal) Modifier.onGloballyPositioned { onBounds(it.boundsInRoot()) }
+                else Modifier
+            )
             .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
-            .background(base)
+            .drawWithCache {
+                // Butun sirt suslemesi tek cizim gecisinde: sirt basina ~10 yerine 1 dugum.
+                val w = size.width
+                val h = size.height
+                val bandH = 1.5.dp.toPx()
+                val bandPad = 7.dp.toPx()
+                val labelH = (book.heightDp * 0.11f).dp.toPx()
+                val corner = 1.dp.toPx()
+                val surface = Brush.verticalGradient(
+                    0f to Color(0x24FFFFFF),
+                    0.18f to Color(0x00FFFFFF),
+                    0.82f to Color(0x12000000),
+                    1f to Color(0x3D000000)
+                )
+                val textLayout = if (label.isNotBlank()) {
+                    // sirt yuksekliginin neredeyse tamami yazi icin kullanilir; kenarda 8dp pay
+                    val maxWidthPx = (h - 16.dp.toPx()).roundToInt().coerceAtLeast(1)
+                    spineLabelLayout(measurer, label, maxWidthPx, ink, book.isReal)
+                } else {
+                    null
+                }
+
+                onDrawBehind {
+                    drawRect(color = base)
+                    // cilt yuzeyi: ust isik, alt golge
+                    drawRect(brush = surface)
+                    // yan bombeleri
+                    drawRect(color = shade, size = Size(2.dp.toPx(), h))
+                    drawRect(color = light, topLeft = Offset(w - 1.dp.toPx(), 0f), size = Size(1.dp.toPx(), h))
+
+                    // ust/alt altin seritler (her ciltte)
+                    drawRect(GoldBand.copy(alpha = 0.55f), topLeft = Offset(0f, bandPad), size = Size(w, bandH))
+                    drawRect(GoldBand.copy(alpha = 0.55f), topLeft = Offset(0f, h - bandPad - bandH), size = Size(w, bandH))
+
+                    when (decoType) {
+                        0 -> {
+                            // cift etiket
+                            val w1 = w * 0.52f
+                            drawRoundRect(
+                                color = labelColor.copy(alpha = 0.85f),
+                                topLeft = Offset((w - w1) / 2f, 16.dp.toPx()),
+                                size = Size(w1, labelH),
+                                cornerRadius = CornerRadius(corner)
+                            )
+                            val w2 = w * 0.42f
+                            val h2 = labelH * 0.7f
+                            drawRoundRect(
+                                color = labelColor.copy(alpha = 0.55f),
+                                topLeft = Offset((w - w2) / 2f, h - 20.dp.toPx() - h2),
+                                size = Size(w2, h2),
+                                cornerRadius = CornerRadius(corner)
+                            )
+                        }
+                        1 -> {
+                            // orta rozet + ince cizgiler
+                            val d = 9.dp.toPx()
+                            rotate(degrees = 45f, pivot = center) {
+                                drawRect(
+                                    color = GoldBand.copy(alpha = 0.8f),
+                                    topLeft = Offset(center.x - d / 2f, center.y - d / 2f),
+                                    size = Size(d, d)
+                                )
+                            }
+                            val w1 = w * 0.45f
+                            drawRect(
+                                color = GoldBand.copy(alpha = 0.6f),
+                                topLeft = Offset((w - w1) / 2f, 22.dp.toPx()),
+                                size = Size(w1, bandH)
+                            )
+                        }
+                        2 -> {
+                            // uzun etiket
+                            val w1 = w * 0.62f
+                            val h1 = labelH * 1.4f
+                            drawRoundRect(
+                                color = labelColor.copy(alpha = 0.82f),
+                                topLeft = Offset((w - w1) / 2f, h - 22.dp.toPx() - h1),
+                                size = Size(w1, h1),
+                                cornerRadius = CornerRadius(corner)
+                            )
+                        }
+                        3 -> {
+                            // uc ince serit
+                            val sh = 1.2.dp.toPx()
+                            drawRect(GoldBand.copy(alpha = 0.45f), topLeft = Offset(0f, 18.dp.toPx()), size = Size(w, sh))
+                            drawRect(GoldBand.copy(alpha = 0.45f), topLeft = Offset(0f, (h - sh) / 2f), size = Size(w, sh))
+                            drawRect(GoldBand.copy(alpha = 0.45f), topLeft = Offset(0f, h - 18.dp.toPx() - sh), size = Size(w, sh))
+                        }
+                        else -> {
+                            val w1 = w * 0.46f
+                            val h1 = labelH * 0.9f
+                            drawRoundRect(
+                                color = labelColor.copy(alpha = 0.6f),
+                                topLeft = Offset((w - w1) / 2f, 16.dp.toPx()),
+                                size = Size(w1, h1),
+                                cornerRadius = CornerRadius(corner)
+                            )
+                            val w2 = w * 0.3f
+                            drawRect(
+                                color = GoldBand.copy(alpha = 0.7f),
+                                topLeft = Offset((w - w2) / 2f, h - 16.dp.toPx() - bandH),
+                                size = Size(w2, bandH)
+                            )
+                        }
+                    }
+
+                    // sirt yazisi
+                    if (textLayout != null) {
+                        rotate(degrees = -90f, pivot = center) {
+                            drawText(
+                                textLayoutResult = textLayout,
+                                topLeft = Offset(
+                                    x = center.x - textLayout.size.width / 2f,
+                                    y = center.y - textLayout.size.height / 2f
+                                )
+                            )
+                        }
+                    }
+
+                    if (book.isReal) {
+                        drawRect(GoldBright, topLeft = Offset.Zero, size = Size(w, 3.5.dp.toPx()))
+                        drawCircle(
+                            color = GoldBright,
+                            radius = 1.5.dp.toPx(),
+                            center = Offset(w / 2f, h - 6.dp.toPx() - 1.5.dp.toPx())
+                        )
+                    }
+                }
+            }
             .drawWithContent {
                 drawContent()
                 if (dimmed) {
@@ -429,206 +606,5 @@ fun BookSpine(
                 }
             }
             .then(if (book.isReal && interactive) Modifier.clickable { onClick() } else Modifier)
-    ) {
-        // cilt yuzeyi: ust isik, alt golge
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to Color(0x24FFFFFF),
-                        0.18f to Color(0x00FFFFFF),
-                        0.82f to Color(0x12000000),
-                        1f to Color(0x3D000000)
-                    )
-                )
-        )
-        // yan bombeleri
-        Box(
-            Modifier
-                .fillMaxHeight()
-                .width(2.dp)
-                .align(Alignment.CenterStart)
-                .background(shade)
-        )
-        Box(
-            Modifier
-                .fillMaxHeight()
-                .width(1.dp)
-                .align(Alignment.CenterEnd)
-                .background(light)
-        )
-
-        val decoType = (seed / 5) % 5
-        val labelHeight = (book.heightDp * 0.11f).dp
-
-        // ust/alt altin seritler (her ciltte)
-        Box(
-            Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 7.dp)
-                .fillMaxWidth()
-                .height(1.5.dp)
-                .background(GoldBand.copy(alpha = 0.55f))
-        )
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 7.dp)
-                .fillMaxWidth()
-                .height(1.5.dp)
-                .background(GoldBand.copy(alpha = 0.55f))
-        )
-
-        when (decoType) {
-            0 -> {
-                // cift etiket
-                Box(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
-                        .fillMaxWidth(0.52f)
-                        .height(labelHeight)
-                        .background(labelColor.copy(alpha = 0.85f), RoundedCornerShape(1.dp))
-                )
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 20.dp)
-                        .fillMaxWidth(0.42f)
-                        .height(labelHeight * 0.7f)
-                        .background(labelColor.copy(alpha = 0.55f), RoundedCornerShape(1.dp))
-                )
-            }
-            1 -> {
-                // orta rozet + ince cizgiler
-                Box(
-                    Modifier
-                        .align(Alignment.Center)
-                        .size(width = 9.dp, height = 9.dp)
-                        .graphicsLayer { rotationZ = 45f }
-                        .background(GoldBand.copy(alpha = 0.8f))
-                )
-                Box(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 22.dp)
-                        .fillMaxWidth(0.45f)
-                        .height(1.5.dp)
-                        .background(GoldBand.copy(alpha = 0.6f))
-                )
-            }
-            2 -> {
-                // uzun etiket
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 22.dp)
-                        .fillMaxWidth(0.62f)
-                        .height(labelHeight * 1.4f)
-                        .background(labelColor.copy(alpha = 0.82f), RoundedCornerShape(1.dp))
-                )
-            }
-            3 -> {
-                // uc ince serit
-                Box(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 18.dp)
-                        .fillMaxWidth()
-                        .height(1.2.dp)
-                        .background(GoldBand.copy(alpha = 0.45f))
-                )
-                Box(
-                    Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth()
-                        .height(1.2.dp)
-                        .background(GoldBand.copy(alpha = 0.45f))
-                )
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 18.dp)
-                        .fillMaxWidth()
-                        .height(1.2.dp)
-                        .background(GoldBand.copy(alpha = 0.45f))
-                )
-            }
-            else -> {
-                Box(
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
-                        .fillMaxWidth(0.46f)
-                        .height(labelHeight * 0.9f)
-                        .background(labelColor.copy(alpha = 0.6f), RoundedCornerShape(1.dp))
-                )
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 16.dp)
-                        .fillMaxWidth(0.3f)
-                        .height(1.5.dp)
-                        .background(GoldBand.copy(alpha = 0.7f))
-                )
-            }
-        }
-
-        // sirt yazisi: cok kucuk baslik + yazar (Canvas uzerinde, 180 dugum olusturmadan)
-        run {
-            val spineTitle = book.title.trim()
-            if (spineTitle.isNotBlank()) {
-                val author = book.authors.substringBefore(',').trim()
-                val label = if (author.isBlank()) spineTitle else "$spineTitle · $author"
-                val ink = spineInk(base, book.isReal)
-                val density = LocalDensity.current
-                val measurer = rememberTextMeasurer(cacheSize = 32)
-                val style = TextStyle(
-                    color = ink,
-                    fontSize = if (book.isReal) 6.sp else 5.sp,
-                    fontFamily = FontFamily.Serif
-                )
-                // sirt yuksekliginin neredeyse tamami yazi icin kullanilir; kenarda 8dp pay
-                val maxWidthPx = with(density) { (spineHeight - 16.dp).roundToPx() }.coerceAtLeast(1)
-                val layout = remember(label, book.isReal, maxWidthPx, density) {
-                    measurer.measure(
-                        text = label,
-                        style = style,
-                        overflow = TextOverflow.Ellipsis,
-                        maxLines = 1,
-                        constraints = Constraints(maxWidth = maxWidthPx)
-                    )
-                }
-                Canvas(Modifier.fillMaxSize()) {
-                    rotate(degrees = -90f, pivot = center) {
-                        drawText(
-                            textLayoutResult = layout,
-                            topLeft = Offset(
-                                x = center.x - layout.size.width / 2f,
-                                y = center.y - layout.size.height / 2f
-                            )
-                        )
-                    }
-                }
-            }
-        }
-
-        if (book.isReal) {
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .height(3.5.dp)
-                    .background(GoldBright)
-            )
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 6.dp)
-                    .size(3.dp)
-                    .background(GoldBright, RoundedCornerShape(50))
-            )
-        }
-    }
+    )
 }

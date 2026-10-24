@@ -183,4 +183,7 @@ Open Library'ye geçer; geçici Google kesintileri taramayı yavaşlatmaz.
 - Yol haritası ve sıradaki fazlar: [ROADMAP.md](ROADMAP.md)
 - Debug derlemede veritabanı boşsa 9 örnek kitap eklenir (gerçek barkodlarla test için).
 - Raf görselindeki 180 sırtın geri kalanı dekoratiftir; gerçek kitaplar `isReal` ile işaretlenir.
+- Her sırt tek Compose düğümü + tek çizim geçişiyle çizilir (dekor, altın şeritler ve sırt
+  yazısı `drawWithCache` içinde); sırt yazısı ölçümleri süreç önbelleğinde tutulur. Böylece
+  180 ciltli raf tek geçişte çizilir, dönüş/soğuk açılışta metin yeniden ölçülmüyor.
 - Sıralı toplu içe aktarma (chatbot/JSON) henüz yok; `LibraryRepository.addIsbn` üzerinden eklenebilir.

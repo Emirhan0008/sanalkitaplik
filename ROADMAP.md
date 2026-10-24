@@ -183,7 +183,7 @@ Kanıt (fiziksel telefon M2101K7BG, üç kabul kriteri de geçti):
 
 ---
 
-## Faz 6 — Haptik ve cila (⏳ cihaz doğrulaması bekliyor)
+## Faz 6 — Haptik ve cila (⏳ iki küçük açık: haptik onayı, raf açılışı ölçümü)
 
 **Neden:** Uygulama işlevsel ama "pahalı" hissettirmiyor.
 
@@ -218,13 +218,45 @@ Kanıt (fiziksel telefon M2101K7BG):
   iki katmanın alfası toplamı her karede 1 olduğu için boş kare matematiksel olarak yok.
   Dokunma da kilidi: yalnız tam görünür katman dokunmayı alır (alfa 0 rafın görünmez
   sırtları liste üstünde tıklanamasın).
+  **Boş kare taraması (emülatör EnderTest):** iki yönde de geçiş ortası kareler seri
+  `screencap` ile yakalandı (t1–t4, r1–r4) — hiçbir karede boş/eksik ekran yok;
+  karşı kareler piksel düzeyinde aynı (çapraz solma ya çok hızlı ya da her kare dolu).
+- **Uçuş ölçümü (fiziksel telefon):** `dumpsys gfxinfo framestats` ile 5 tur uçuş =
+  120 çizilen kare, 0 atlanan → **%0.00 GECTİ** (atlanan kare = `(Vsync − IntendedVsync)
+  // FrameInterval`). Emülatörde de 120/0 tekrarlandı.
+- **Spine çizim yeniden yapılandırması:** `BookSpine` ~10 Compose düğümünden **1 düğüme**
+  indirildi — tüm dekor (cilt yüzeyi gradyanı, yan bombeler, altın şeritler, 5 dekor
+  varyantı, döndürülmüş sırt yazısı, gerçek kitap altın şerit/nokta) tek
+  `drawWithCache → onDrawBehind` geçişi içinde çiziliyor. `ShelfRowView`'daki
+  `BoxWithConstraints` (SubcomposeLayout — ölçüm fazında kompozisyon çalıştırıyordu)
+  kaldırıldı; yerine `heightFactor` ile `fillMaxHeight`. Sırt yazısı ölçümü süreç-omrulu
+  `LruCache<String, TextLayoutResult>(256)` içinde (`spineLabelLayout`) tutuluyor —
+  dönüş/soğuk açılışta metin yeniden ölçülmüyor. Görsel parite ekran görüntüsüyle
+  doğrulandı: 180 cilt, altın şeritler, etiket varyantları, dikey yazılar, eğik ciltler,
+  vinyet birebir aynı.
+- **Kök neden analizi (performans bloğu):** raf açılışında/dönüşte görülen ~1.4 sn
+  "ölçüm/yerleşim" bloğunun **Compose yerleşimi olmadığı** kanıtlandı:
+  (a) framestats'te tampon bekleme yok (dequeue/queue 0–1 ms) → iş parçacığı işi;
+  (b) spine düğümlerini ~10× azaltmak bloğu değiştirmedi (1574→1482 ms);
+  (c) spine'lar tamamen kaldırılınca bile soğuk açılış ilk karesi 5007 ms ölçü/yerleşim;
+  (d) `/proc/<pid>/task/<tid>/stat` ile ana iş parçacığı dönüşte ~0.98 sn gerçek CPU;
+  (e) simpleperf sembolleri: `art::HInstructionBuilder::ResolveClass`,
+  `art::GVNOptimization::Run`, `art::RegisterAllocation*` → **DEBUG APK'da ART sınıf
+  yükleme/JIT + ilk kompozisyon** maliyeti (AOT yok). Yarı spine'lara bağlı
+  (1169→611 ms), yarı tek seferlik başlatma. Release (R8/AOT) derlemede bu maliyetin
+  büyük bölümü kaybolur; telefon rakamları (soğuk açılış 3.6 sn) zaten hedefte.
 
-Açık: 2. kabul kriteri (`dumpsys gfxinfo framestats`, atlanan kare < %1) ve yeni çapraz
-solmanın videosu fiziksel telefon (PFR4VGZTTWNBEUCA) USB'ye geri takılınca doğrulanacak.
+Açık:
+1. 2. kabul kriterinin **raf açılışı** ayağının fiziksel telefonda framestats ölçümü
+   (uçuş ayağı telefonda %0 ile geçti). Emülatör (EnderTest) ölçümleri yalnız göreli
+   sinyal için geçerli: 3 AVD paylaşımı + yazılım GPU mutlak rakamları şişiriyor
+   (ör. soğuk açılış 15 sn); ayrıca API 35 + BLAST'te framestats satırları boş geliyor,
+   özet sayaçlar + `Choreographer` ile ölçülüyor.
+2. Haptik hissiyatının cihaz sahibince onayı (1. kabul kriteri).
 
 ---
 
-## Faz 7 — Ayarlar ve kaynak sağlığı (⏳ cihaz doğrulaması bekliyor)
+## Faz 7 — Ayarlar ve kaynak sağlığı (✅ cihazda doğrulandı)
 
 **Neden:** Google Books şu an arızalı; kullanıcı hangi kaynağın kullanıldığını görebilmeli.
 
@@ -252,7 +284,13 @@ Kanıt (kod tamamlandı, derleme temiz):
 - Üçüncü sekme, çapraz solma yapısına eklendi: her sekmenin kendi alfa'sı var,
   raf katmanı yine hiç dispose edilmez; yalnız tam görünür katman dokunmayı alır.
 
-Açık: 2 kabul kriterinin cihazda gözle doğrulaması (fiziksel telefon / uygun emülatör).
+Kanıt (fiziksel telefon M2101K7BG — iki kabul kriteri de doğrulandı):
+- **Kriter 1:** Google Books `HTTP 503 backendFailed` dönerken Ayarlar ekranı
+  "Open Library kullanılıyor" gösterdi; elle ISBN sorgusu Open Library yedeğiyle
+  tamamlandı (ör. `The Count of Monte Cristo`, "Kaynak: Open Library").
+- **Kriter 2:** devre kesici devreye girince durum "devre dışı · 9 dk" olarak göründü;
+  10 dk dolduğunda durum etiketi kendiliğinden **"aktif"**e döndü
+  (`BookMetadataSource.SourceHealth`, 15 sn'lik yeniden okuma).
 
 ---
 

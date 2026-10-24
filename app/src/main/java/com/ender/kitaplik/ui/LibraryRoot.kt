@@ -58,23 +58,28 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarDuration
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -89,6 +94,7 @@ import com.ender.kitaplik.data.RemoteMeta
 import com.ender.kitaplik.data.normalizeIsbn
 import com.ender.kitaplik.ui.shelf.Bookshelf
 import com.ender.kitaplik.ui.shelf.ShelfBook
+import com.ender.kitaplik.ui.shelf.ShelfRow
 import com.ender.kitaplik.ui.shelf.buildFittedShelves
 import com.ender.kitaplik.ui.shelf.rankMatches
 import kotlinx.coroutines.CancellationException
@@ -134,6 +140,10 @@ fun LibraryRoot() {
     var flightBook by remember { mutableStateOf<ShelfBook?>(null) }
     var flyStart by remember { mutableStateOf<Rect?>(null) }
     var flyTarget by remember { mutableStateOf<Rect?>(null) }
+    // Ucus katmani, progress sifira cekilip ilk kare hazir olana kadar cizilmez.
+    // Aksi halde Animatable'in onceki turdan kalan degeri (1f) bir kare boyunca
+    // gorunup "raf bir anda karardi" etkisi veriyordu.
+    var flightArmed by remember { mutableStateOf(false) }
     var detailIsbn by rememberSaveable { mutableStateOf<String?>(null) }
     var detailVisible by remember { mutableStateOf(false) }
     var phase by remember { mutableStateOf(Phase.Idle) }
@@ -163,11 +173,22 @@ fun LibraryRoot() {
     val shelfByIsbn = remember(shelfRows) {
         buildMap { shelfRows.forEach { row -> row.books.forEach { if (it.isReal) put(it.key, it) } } }
     }
+
+    // Raf gorunumu tek bir degismez nesnede toplanir: ucus/detay durumu degistiginde
+    // raf alt agaci recompose edilmez (180 sirt yeniden cizilip animasyonu kilitliyordu).
+    val shelfVisual = remember(shelfRows, matchedKeys, searching, query) {
+        ShelfVisual(
+            rows = shelfRows,
+            matched = if (searching) matchedKeys else emptySet(),
+            searching = searching && query.isNotBlank()
+        )
+    }
     val detailBook = detailIsbn?.let { isbn -> books.firstOrNull { it.isbn == isbn } }
 
     val reveal: (ShelfBook) -> Unit = reveal@{ shelfBook ->
         if (phase != Phase.Idle) return@reveal
         phase = Phase.Flying
+        flightArmed = false
         flightBook = shelfBook
         flyTarget = target.snapped()
         flyStart = bounds[shelfBook.key]
@@ -181,11 +202,18 @@ fun LibraryRoot() {
                     ?.takeIf { it.width > 1f && it.height > 1f }
                     ?.let { flyStart = it.snapped() }
 
+                // Ilk kare bedava degil: ucus katmani o an kuruluyor ve kapak dosyadan
+                // cozuluyor. Animasyonu hemen baslatirsak bu is tek karede birikip
+                // progress'i 0'dan ~0.9'a firlatiyor (gorsel: sicrama). Iki kare bekle:
+                // takilma p=0 iken (kapak henuz alfa 0) yasanir, sonra akici baslar.
                 progress.snapTo(0f)
+                withFrameNanos { }
+                withFrameNanos { }
+                flightArmed = true
                 progress.animateTo(
                     targetValue = 1f,
                     animationSpec = tween(
-                        durationMillis = 720,
+                        durationMillis = 900,
                         easing = CubicBezierEasing(0.18f, 0.86f, 0.10f, 1f)
                     )
                 )
@@ -199,14 +227,25 @@ fun LibraryRoot() {
     }
 
     val resetFlight: () -> Unit = {
+        flightArmed = false
         flightBook = null
         flyStart = null
         flyTarget = null
     }
 
+    // Rafin ucus sirasinda recompose olmamasi icin lambda kimlikleri sabitlenir.
+    // (Aksi halde 180 sirtin tamami yeniden cizilir ve animasyonun ilk karesi kilitlenir.)
+    val revealLatest = rememberUpdatedState<(ShelfBook) -> Unit>(reveal)
+    val stableReveal: (ShelfBook) -> Unit = remember { { b -> revealLatest.value(b) } }
+    val stableBounds: (ShelfBook, Rect) -> Unit = remember {
+        { b, r -> bounds[b.key] = r }
+    }
+
     val dismiss: () -> Unit = dismiss@{
         if (phase != Phase.Detail) return@dismiss
         phase = Phase.Closing
+        // Kapanista ucus katmani devralir; armed olmali yoksa katman hic cizilmez.
+        flightArmed = true
         animJob = scope.launch {
             detailVisible = false
             delay(150)
@@ -312,12 +351,27 @@ fun LibraryRoot() {
             containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbarHost) },
             bottomBar = {
-                if (phase == Phase.Idle && !scannerOpen) {
+                // Alt bar her zaman olculur, sadece alfa ile gizlenir. Kosullu olarak
+                // kaldirildiginda Scaffold innerPadding'i degisiyor, tum ekran (180 sirt)
+                // yeniden olculuyordu; ucusun ilk karesi bu yuzden kilitleniyordu.
+                Box(
+                    Modifier.graphicsLayer {
+                        alpha = if (phase == Phase.Idle && !scannerOpen) 1f else 0f
+                    }
+                ) {
                     LibraryBar(tab = tab, onTab = { tab = it })
                 }
             }
         ) { innerPadding ->
-            Column(Modifier.fillMaxSize().padding(innerPadding)) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    // Ucus sirasinda raf bir RenderNode'a kaydedilir ve her karede
+                    // yeniden cizilmez: 180 sirt (Canvas + donuk metin) cizimi kare
+                    // butcesini asiyordu. Raf gorunur kalir, overlay uzerine biner.
+                    .graphicsLayer { }
+            ) {
                 when (tab) {
                     0 -> {
                         ShelfHeader(
@@ -351,14 +405,10 @@ fun LibraryRoot() {
                                 }
                             }
                         )
-                        Bookshelf(
-                            rows = shelfRows,
-                            interactive = phase == Phase.Idle,
-                            onRealBookClick = reveal,
-                            onBounds = { book, rect -> bounds[book.key] = rect },
-                            matchedKeys = if (searching) matchedKeys else emptySet(),
-                            searching = searching && query.isNotBlank(),
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 4.dp)
+                        ShelfSection(
+                            visual = shelfVisual,
+                            onReveal = stableReveal,
+                            onBounds = stableBounds
                         )
                     }
                     else -> BookListTab(
@@ -377,7 +427,7 @@ fun LibraryRoot() {
 
         // Ucus katmani yalnizca ucus/kapanis sirasinda cizilir; detay oturunca
         // detay katmani kapağı devralir (cift cizim ve artik golge olmaz).
-        if (flightBook != null && !detailVisible) {
+        if (flightBook != null && !detailVisible && flightArmed) {
             FlightLayer(
                 book = flightBook!!,
                 start = flyStart ?: fallbackStart(target).snapped(),
@@ -442,6 +492,35 @@ fun LibraryRoot() {
             )
         }
     }
+}
+
+/** Rafin cizim girdileri; tek degismez nesne -> ucus sirasinda recompose edilmez. */
+@Immutable
+private data class ShelfVisual(
+    val rows: List<ShelfRow>,
+    val matched: Set<String>,
+    val searching: Boolean
+)
+
+/**
+ * Rafi ana ekrandan ayirir: parametreleri sabit oldugu icin ucus/detay durumu
+ * degistiginde (phase, flyStart, detailVisible...) bu alt agac atlanir.
+ */
+@Composable
+private fun ColumnScope.ShelfSection(
+    visual: ShelfVisual,
+    onReveal: (ShelfBook) -> Unit,
+    onBounds: (ShelfBook, Rect) -> Unit
+) {
+    Bookshelf(
+        rows = visual.rows,
+        interactive = true,
+        onRealBookClick = onReveal,
+        onBounds = onBounds,
+        matchedKeys = visual.matched,
+        searching = visual.searching,
+        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 4.dp)
+    )
 }
 
 @Composable

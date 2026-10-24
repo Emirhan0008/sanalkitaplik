@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.ender.kitaplik.data.BookEntity
@@ -61,7 +62,9 @@ fun BookCover(
     book: BookEntity,
     modifier: Modifier = Modifier,
     corner: Dp = 10.dp,
-    compact: Boolean = false
+    compact: Boolean = false,
+    /** Animasyon icinde true: subcomposition her karede ek is yaptigi icin kapali tutulur. */
+    subcompose: Boolean = true
 ) {
     val shape = RoundedCornerShape(corner)
     Box(modifier.clip(shape).background(Color(0xFF241E19))) {
@@ -70,17 +73,27 @@ fun BookCover(
             coverPath != null && File(coverPath).exists()
         }
         if (coverPath != null && fileExists) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(File(coverPath))
-                    .crossfade(false)
-                    .build(),
-                contentDescription = book.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                loading = { GeneratedCover(book, Modifier.fillMaxSize(), compact) },
-                error = { GeneratedCover(book, Modifier.fillMaxSize(), compact) }
-            )
+            val request = ImageRequest.Builder(LocalContext.current)
+                .data(File(coverPath))
+                .crossfade(false)
+                .build()
+            if (subcompose) {
+                SubcomposeAsyncImage(
+                    model = request,
+                    contentDescription = book.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    loading = { GeneratedCover(book, Modifier.fillMaxSize(), compact) },
+                    error = { GeneratedCover(book, Modifier.fillMaxSize(), compact) }
+                )
+            } else {
+                AsyncImage(
+                    model = request,
+                    contentDescription = book.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         } else {
             GeneratedCover(book, Modifier.fillMaxSize(), compact)
         }

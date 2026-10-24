@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.BottomSheetDefaults
@@ -58,7 +59,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarDuration
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -130,6 +135,43 @@ fun LibraryRoot() {
 
     val scope = rememberCoroutineScope()
     val snackbarHost = remember { SnackbarHostState() }
+
+    // Yedekleme: ACTION_CREATE_DOCUMENT / ACTION_OPEN_DOCUMENT (paylasim menusu degil).
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = runCatching { vm.exportBackup(uri) }
+            snackbarHost.showSnackbar(
+                result.fold(
+                    onSuccess = { count -> if (count == 0) "Kütüphane boş" else "$count kitap yedeklendi" },
+                    onFailure = { "Yedek alınamadı: ${it.message ?: "bilinmeyen hata"}" }
+                )
+            )
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = runCatching { vm.importBackup(uri) }
+            snackbarHost.showSnackbar(
+                result.fold(
+                    onSuccess = { it.message },
+                    onFailure = { "Yedek okunamadı: ${it.message ?: "bilinmeyen hata"}" }
+                )
+            )
+        }
+    }
+    val requestExport: () -> Unit = {
+        exportLauncher.launch("ender-kutuphane-yedek-${backupStamp()}.json")
+    }
+    val requestImport: () -> Unit = {
+        // Bazi dosya yoneticileri JSON'u text/plain olarak isaretler.
+        importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+    }
 
     var tab by rememberSaveable { mutableStateOf(0) }
     var scannerOpen by rememberSaveable { mutableStateOf(false) }
@@ -378,6 +420,8 @@ fun LibraryRoot() {
                             realCount = books.size,
                             spineCount = shelfRows.sumOf { it.books.size },
                             onScan = { scannerOpen = true },
+                            onExport = requestExport,
+                            onImport = requestImport,
                             searching = searching,
                             query = query,
                             onQueryChange = { query = it },
@@ -528,6 +572,8 @@ private fun ShelfHeader(
     realCount: Int,
     spineCount: Int,
     onScan: () -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
     searching: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
@@ -627,6 +673,9 @@ private fun ShelfHeader(
                         tint = Color(0xFF6B4A2F)
                     )
                 }
+                // Yedekleme menusu basligin yanina konunca baslik kirpiliyordu;
+                // alt satirda, arama ikonunun yaninda yer var.
+                BackupMenu(onExport = onExport, onImport = onImport)
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -646,6 +695,46 @@ private fun ShelfHeader(
         }
     }
 }
+
+/**
+ * Yedekleme menusu (Faz 5). "Yedek al" / "Yedekten yukle".
+ * Faz 7'deki ayarlar ekrani gelince buradan oraya tasinabilir.
+ */
+@Composable
+private fun BackupMenu(onExport: () -> Unit, onImport: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }, modifier = Modifier.size(26.dp)) {
+            Icon(
+                imageVector = Icons.Rounded.MoreVert,
+                contentDescription = "Yedekleme",
+                modifier = Modifier.size(16.dp),
+                tint = Color(0xFF6B4A2F)
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("Yedek al (.json)") },
+                onClick = {
+                    open = false
+                    onExport()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Yedekten yükle") },
+                onClick = {
+                    open = false
+                    onImport()
+                }
+            )
+        }
+    }
+}
+
+/** Dosya adi icin tarih damgasi: 2026-10-24-1830 */
+private fun backupStamp(): String =
+    java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US)
+        .format(java.util.Date())
 
 @Composable
 private fun LibraryBar(tab: Int, onTab: (Int) -> Unit) {

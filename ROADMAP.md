@@ -19,9 +19,23 @@ Durum işaretleri: **✅ tamam** · **⬜ planlandı**
 | Sırt yazıları (başlık + yazar, döndürülmüş serif) | ✅ |
 | Google Books API anahtarı + 10 dk devre kesici | ✅ |
 | Sırt yazısını Canvas'a taşıma (açılış donması giderildi) | ✅ |
+| Uçuş animasyonu akıcılığı (2D, GPU dostu) | ✅ |
 
 Kanıt: `9789750718533` → *Tutunamayanlar / Oğuz Atay / İletişim 1971 / 724 s.*
 (Google 0 sonuç döndürdü, Open Library yedeği künyeyi getirdi.)
+
+Kanıt (uçuş animasyonu, fiziksel telefon M2101K7BG):
+- Sırt → kapak dönüşümü 3D'den (rotationY + cameraDistance + shadowElevation) 2D'ye
+  (konum + ölçek + alfa + hafif yay) taşındı; bazı GPU'larda tek kareyi saniyelerce
+  kilitleyen donma kalktı.
+- Uçuş katmanı ilk kare hazır olmadan çizilmiyor (`flightArmed`) + `progress`
+  sıfırlandıktan sonra iki kare bekleniyor → Animatable'ın eski değeri yüzünden
+  rafın bir anda kararması ve sırtın sıçraması giderildi.
+- Scaffold alt barı kaldırılmıyor, alfa ile gizleniyor → 180 sırt yeniden ölçülmiyor.
+- Raf `graphicsLayer` ile donduruluyor; uçuşta yeniden çizilmiyor.
+- Ekran kaydı (30 fps) kare kare incelendi: sırt önce raftan kalkıyor, arka plan
+  kademeli kararıyor (0.20 → 0.62), kapak en son hedefe oturuyor; sıçrama yok.
+- `dumpsys gfxinfo`: 50. persentil 15 ms (öncesi 38 ms).
 
 ---
 
@@ -134,7 +148,7 @@ Kanıt (emülatör, `emulator-5556`):
 
 ---
 
-## Faz 5 — Yedekleme / dışa aktarma
+## Faz 5 — Yedekleme / dışa aktarma (✅ tamamlandı)
 
 **Neden:** Telefon değişince kütüphane kaybolur; ayrıca harici AI chatbot'un toplu içe aktarması için ortak format gerekir.
 
@@ -151,6 +165,21 @@ Kanıt (emülatör, `emulator-5556`):
 
 **Dosyalar:** yeni `data/LibraryBackup.kt`, `LibraryRoot.kt` (menü), `LibraryViewModel.kt`
 **Tahmin:** 2 oturum · **Risk:** orta (dosya izinleri, şema uyumu)
+
+Kanıt (fiziksel telefon M2101K7BG, üç kabul kriteri de geçti):
+1. **Geri yükleme:** 12 kitap `ACTION_CREATE_DOCUMENT` ile `ender-kutuphane-yedek-*.json`
+   olarak dışa aktarıldı → `pm clear` ile veri temizlendi → içe aktarıldı
+   ("3 eklendi, 9 atlandı (zaten var)"; 9'u DEBUG örnek tohumuydu) → veritabanı
+   satır satır yedekle karşılaştırıldı: başlık/yazar/yayınevi/tarih/sayfa/açıklama/
+   enriched alanlarında **fark yok** (12/12).
+2. **Bozuk dosya:** `{bozuk json` → çökme yok, "Yedek okunamadı: Geçerli bir JSON değil".
+   `schemaVersion: 99` → "Yedek daha yeni bir sürümden (99); uygulamayı güncelle".
+3. **Kopya:** aynı dosya iki kez içe aktarıldı → "0 eklendi, 12 atlandı (zaten var)",
+   kitap sayısı 12'de kaldı.
+- Menü başlığın üst satırında başlığı kırpıyordu; `⋮` menü ikinci satıra (arama
+  ikonunun yanına) taşındı.
+- Kapak dosyaları yedeklenmiyor (cihaza özel yol); içe aktarmadan sonra ön indirme
+  akışıyla geri geliyor. Faz 5b (`.zip` ile kapak taşıma) opsiyonel olarak açık.
 
 ---
 

@@ -42,4 +42,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Ayni eserin farkli baskisi kutuphanede var mi? */
     suspend fun findEdition(isbn: String, meta: com.ender.kitaplik.data.RemoteMeta?): BookEntity? =
         repo.findEditionMatch(isbn, meta)
+
+    // --------------------------------------------------------------- yedekleme
+
+    suspend fun exportBackup(uri: android.net.Uri): Int = repo.exportBackup(uri)
+
+    suspend fun importBackup(uri: android.net.Uri): com.ender.kitaplik.data.LibraryBackup.ImportReport =
+        repo.importBackup(uri)
 }

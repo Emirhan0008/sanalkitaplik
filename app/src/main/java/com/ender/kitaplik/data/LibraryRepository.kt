@@ -1,6 +1,7 @@
 package com.ender.kitaplik.data
 
 import android.content.Context
+import android.net.Uri
 import com.ender.kitaplik.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 class LibraryRepository(
     private val dao: BookDao,
@@ -186,6 +188,56 @@ class LibraryRepository(
         } finally {
             inFlight.remove(isbn)
         }
+    }
+
+    // ------------------------------------------------------------ yedekleme
+
+    /**
+     * Kutuphaneyi JSON olarak verilen dosyaya yazar.
+     * @return yazilan kitap sayisi
+     */
+    suspend fun exportBackup(uri: Uri): Int = withContext(Dispatchers.IO) {
+        val books = dao.getAll().sortedBy { it.addedAt }
+        val json = LibraryBackup.toJson(books)
+        val stream = appContext.contentResolver.openOutputStream(uri, "wt")
+            ?: throw IOException("Dosya açılamadı")
+        stream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+        books.size
+    }
+
+    /**
+     * JSON yedegini ice aktarir. Var olan ISBN'ler atlanir; kapaklar ardindan
+     * normal on indirme akisiyla geri gelir.
+     */
+    suspend fun importBackup(uri: Uri): LibraryBackup.ImportReport = withContext(Dispatchers.IO) {
+        val text = appContext.contentResolver.openInputStream(uri)
+            ?.use { it.readBytes().toString(Charsets.UTF_8) }
+            ?: throw IOException("Dosya açılamadı")
+
+        val parsed = LibraryBackup.parse(text)
+        var added = 0
+        var existing = 0
+        parsed.books.forEach { book ->
+            if (dao.findByIsbn(book.isbn) != null) {
+                existing++
+            } else if (dao.insert(book) != -1L) {
+                added++
+            } else {
+                existing++
+            }
+        }
+
+        if (added > 0) {
+            // Kunyesi eksik gelenler icin kuyruk; kapaklar on indirme ile tamamlanir.
+            EnrichWorker.enqueue(appContext)
+            prefetchCovers()
+        }
+        LibraryBackup.ImportReport(
+            added = added,
+            skippedExisting = existing,
+            skippedInvalid = parsed.skippedInvalid,
+            totalInFile = parsed.books.size + parsed.skippedInvalid
+        )
     }
 
     private suspend fun writeCover(isbn: String, bytes: ByteArray): String? =

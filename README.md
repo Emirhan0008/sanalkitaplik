@@ -86,6 +86,24 @@ Kapaklar `files/covers/<isbn>.jpg` olarak cihazda tutulur (çevrimdışı çalı
 - Open Library kaydı istenen ISBN'i listelemiyorsa (ya da yalnızca `0000000000` gibi sahte ISBN
   taşıyorsa) künye reddedilir; böylece rastgele/yanlış başlık kütüphaneye yazılmaz.
 
+## Yedekleme / dışa aktarma
+
+Başlıktaki **⋮** menüsü iki iş sunar (dosya seçici ile, paylaşım menüsü değil):
+
+- **Yedek al (.json):** kütüphane `ACTION_CREATE_DOCUMENT` ile `ender-kutuphane-yedek-<tarih>.json`
+  olarak kaydedilir. Şema: `{ "schemaVersion": 1, "exportedAt": ..., "app": ..., "books": [...] }`.
+  Kapak dosyaları yedeklenmez (cihaza özel yol); içe aktarmadan sonra ön indirme akışıyla geri gelir.
+- **Yedekten yükle:** `ACTION_OPEN_DOCUMENT` ile JSON seçilir. ISBN'i zaten var olan kitaplar
+  atlanır, yenileri eklenir; sonuç snackbar'da raporlanır ("3 eklendi, 9 atlandı (zaten var)").
+
+Kurallar:
+
+- Bozuk/eksik JSON uygulamayı çökertmez: "Yedek okunamadı: ..." mesajı gösterilir.
+- `schemaVersion` ileri sürümse (ör. 99) açıkça reddedilir: "Yedek daha yeni bir sürümden...;
+  uygulamayı güncelle".
+- Geçersiz ISBN'li kayıtlar atlanır; aynı ISBN dosya içinde birden fazlaysa ilki tutulur.
+- İçe aktarılan künyesi eksik kitaplar WorkManager kuyruğuna girer.
+
 ## Katmanlar
 
 ```
@@ -96,6 +114,7 @@ data/
   WorkMatcher.kt                        ISBN'den bağımsız eser/baskı eşleştirme
   LibraryRepository.kt                  çevrimdışı öncelikli; enrich + kapak ön indirme tekilleştirilmiş
   EnrichWorker.kt                       WorkManager kuyruğu (ağ kısıtı, backoff, tek iş)
+  LibraryBackup.kt                      JSON dışa/içe aktarma (schemaVersion 1) + içe aktarma raporu
 ui/
   LibraryRoot.kt                        sekmeler, faz makinesi (Idle/Flying/Detail/Closing)
   shelf/ShelfModels.kt                  sırt üretimi + satırlara tam oturan yerleşim

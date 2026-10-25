@@ -440,5 +440,5 @@ private fun org.json.JSONArray?.joinObjects(key: String): String {
  */
 private val CANONICAL_ID = Regex("""(?:og:url|canonical)[^>]*?[?&](?:amp;)?id=([A-Za-z0-9_-]{6,})""")
 
-/** Yedek: sayfadaki herhangi bir `books?id=...` referansi (vid= gibi sahte eslesmeleri onler). */
-private val GENERIC_ID = Regex("""books\?[^"'<>]*?[?&](?:amp;)?id=([A-Za-z0-9_-]{6,})""")
+/** Yedek: sayfadaki herhangi bir `books...?id=...` referansi (vid= gibi sahte eslesmeleri onler). */
+private val GENERIC_ID = Regex("""books[^"'<>]*?[?&](?:amp;)?id=([A-Za-z0-9_-]{6,})""")

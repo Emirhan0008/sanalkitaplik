@@ -24,7 +24,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -74,10 +73,6 @@ private val SpineColors = listOf(
     0xFF24615C, 0xFF5B2F4E, 0xFFA34A22, 0xFF5E5A24, 0xFF6B4326,
     0xFF3A4E63, 0xFF7A3A2A, 0xFF44455C, 0xFF8A5A1E, 0xFF4E3A2A,
     0xFF74303C, 0xFF31544A, 0xFF5A4A2E, 0xFF3F3A55, 0xFF8C4A2E
-)
-
-private val LabelColors = listOf(
-    0xFFD9BE7E, 0xFFE7D6B0, 0xFFC9A24A, 0xFFDCC596, 0xFFB99B5E
 )
 
 /**
@@ -398,7 +393,7 @@ private fun spineLabelLayout(
             fontFamily = FontFamily.Serif
         ),
         overflow = TextOverflow.Ellipsis,
-        maxLines = 1,
+        maxLines = 2,
         constraints = Constraints(maxWidth = maxWidthPx)
     )
     SpineLayoutCache.put(key, layout)
@@ -423,12 +418,10 @@ fun BookSpine(
 ) {
     val seed = abs(book.colorSeed) % SpineColors.size
     val base = Color(SpineColors[seed])
-    val labelColor = Color(LabelColors[(seed / 7) % LabelColors.size])
     val shade = base.copy(alpha = 0.38f).compositeOver(Color.Black)
     val light = base.copy(alpha = 0.18f).compositeOver(Color(0xFFE8DCC0))
     val tilt = if (book.isReal) 0f else book.tiltDeg
     val budget = if (book.isReal) 0f else book.tiltBudgetDp.coerceAtLeast(0f)
-    val decoType = (seed / 5) % 5
 
     val spineTitle = book.title.trim()
     val author = book.authors.substringBefore(',').trim()
@@ -472,15 +465,14 @@ fun BookSpine(
                 val h = size.height
                 val bandH = 1.5.dp.toPx()
                 val bandPad = 7.dp.toPx()
-                val labelH = (book.heightDp * 0.11f).dp.toPx()
-                val corner = 1.dp.toPx()
                 val surface = Brush.verticalGradient(
                     0f to Color(0x24FFFFFF),
                     0.18f to Color(0x00FFFFFF),
                     0.82f to Color(0x12000000),
                     1f to Color(0x3D000000)
                 )
-                val textLayout = if (label.isNotBlank()) {
+                // Yalnizca gercek kitaplarin adi yazilir; dekoratif ciltler isimsiz kalir.
+                val textLayout = if (book.isReal && label.isNotBlank()) {
                     // sirt yuksekliginin neredeyse tamami yazi icin kullanilir; kenarda 8dp pay
                     val maxWidthPx = (h - 16.dp.toPx()).roundToInt().coerceAtLeast(1)
                     spineLabelLayout(measurer, label, maxWidthPx, ink, book.isReal)
@@ -499,78 +491,6 @@ fun BookSpine(
                     // ust/alt altin seritler (her ciltte)
                     drawRect(GoldBand.copy(alpha = 0.55f), topLeft = Offset(0f, bandPad), size = Size(w, bandH))
                     drawRect(GoldBand.copy(alpha = 0.55f), topLeft = Offset(0f, h - bandPad - bandH), size = Size(w, bandH))
-
-                    when (decoType) {
-                        0 -> {
-                            // cift etiket
-                            val w1 = w * 0.52f
-                            drawRoundRect(
-                                color = labelColor.copy(alpha = 0.85f),
-                                topLeft = Offset((w - w1) / 2f, 16.dp.toPx()),
-                                size = Size(w1, labelH),
-                                cornerRadius = CornerRadius(corner)
-                            )
-                            val w2 = w * 0.42f
-                            val h2 = labelH * 0.7f
-                            drawRoundRect(
-                                color = labelColor.copy(alpha = 0.55f),
-                                topLeft = Offset((w - w2) / 2f, h - 20.dp.toPx() - h2),
-                                size = Size(w2, h2),
-                                cornerRadius = CornerRadius(corner)
-                            )
-                        }
-                        1 -> {
-                            // orta rozet + ince cizgiler
-                            val d = 9.dp.toPx()
-                            rotate(degrees = 45f, pivot = center) {
-                                drawRect(
-                                    color = GoldBand.copy(alpha = 0.8f),
-                                    topLeft = Offset(center.x - d / 2f, center.y - d / 2f),
-                                    size = Size(d, d)
-                                )
-                            }
-                            val w1 = w * 0.45f
-                            drawRect(
-                                color = GoldBand.copy(alpha = 0.6f),
-                                topLeft = Offset((w - w1) / 2f, 22.dp.toPx()),
-                                size = Size(w1, bandH)
-                            )
-                        }
-                        2 -> {
-                            // uzun etiket
-                            val w1 = w * 0.62f
-                            val h1 = labelH * 1.4f
-                            drawRoundRect(
-                                color = labelColor.copy(alpha = 0.82f),
-                                topLeft = Offset((w - w1) / 2f, h - 22.dp.toPx() - h1),
-                                size = Size(w1, h1),
-                                cornerRadius = CornerRadius(corner)
-                            )
-                        }
-                        3 -> {
-                            // uc ince serit
-                            val sh = 1.2.dp.toPx()
-                            drawRect(GoldBand.copy(alpha = 0.45f), topLeft = Offset(0f, 18.dp.toPx()), size = Size(w, sh))
-                            drawRect(GoldBand.copy(alpha = 0.45f), topLeft = Offset(0f, (h - sh) / 2f), size = Size(w, sh))
-                            drawRect(GoldBand.copy(alpha = 0.45f), topLeft = Offset(0f, h - 18.dp.toPx() - sh), size = Size(w, sh))
-                        }
-                        else -> {
-                            val w1 = w * 0.46f
-                            val h1 = labelH * 0.9f
-                            drawRoundRect(
-                                color = labelColor.copy(alpha = 0.6f),
-                                topLeft = Offset((w - w1) / 2f, 16.dp.toPx()),
-                                size = Size(w1, h1),
-                                cornerRadius = CornerRadius(corner)
-                            )
-                            val w2 = w * 0.3f
-                            drawRect(
-                                color = GoldBand.copy(alpha = 0.7f),
-                                topLeft = Offset((w - w2) / 2f, h - 16.dp.toPx() - bandH),
-                                size = Size(w2, bandH)
-                            )
-                        }
-                    }
 
                     // sirt yazisi
                     if (textLayout != null) {

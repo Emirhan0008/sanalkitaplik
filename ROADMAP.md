@@ -15,6 +15,7 @@ Durum işaretleri: **✅ tamam** · **⬜ planlandı**
 | Eğik cilt kuralı (satır başına 1, 5°, komşusuna yaslı) | ✅ |
 | Barkod tarama + elle ISBN girişi | ✅ |
 | Künye zinciri: Google Books → Open Library | ✅ |
+| Künye zinciri v2: ISBN-13/10 varyantları + Google hacim-ID köprüsü + OL 4 adım + hata ayrımı | ✅ |
 | Baskı eşleştirme (farklı ISBN, aynı eser) | ✅ |
 | Sırt yazıları (başlık + yazar, döndürülmüş serif) | ✅ |
 | Google Books API anahtarı + 10 dk devre kesici | ✅ |
@@ -144,6 +145,8 @@ Kanıt (emülatör, `emulator-5556`):
 - Başarısız denemede `enrichAttempts` artıyor (uydurma ISBN 9780000000002 → 1. denemeden sonra `enrichAttempts=1`); rozet eşiği 5.
 - Detaydaki **"Künye eksik · yeniden dene"** rozeti, eşik geçici olarak 0 yapılan doğrulama derlemesinde görsel olarak doğrulandı (metin + buton); buton `sıraya alındı` durumuna geçiyor ve işi yeniden kuyruğa atıyor.
 - **Ek sağlamlaştırma:** Open Library, tanınmayan ISBN'lerde başka kayda yönlendirip yanlış künye döndürebiliyor (ör. 9780000000002 → "Kitab Jurumiyyah"). Artık kaydın ISBN listesi istenen ISBN'i içermiyorsa ya da yalnızca `0000000000` gibi sahte ISBN varsa künye reddediliyor.
+- **Künye zinciri v2 (ISBN-arastirma.md):** Google `volumes.list` arama backend'i kalıcı/aralıklı 503 (`backendFailed`, Google Issue Tracker #536042535) döndüğü için zincir güçlendirildi: (1) `q=isbn:` ISBN-13 + ISBN-10 biçimleriyle denenir; (2) **Google Kitaplar web köprüsü** — `books.google.com/books?vid=ISBN{isbn}` sayfasından yalnızca hacim ID'si okunur, künye resmi `volumes.get` ile çekilir (yanlış hacim ISBN doğrulamasıyla reddedilir); (3) Open Library 4 adım: `/isbn/{isbn}.json` → `/isbn/{isbn10}.json` → `api/books?bibkeys=` → `search.json?isbn=`. ISBN-10/13 karşılıklı dönüşüm `Isbn.kt`'de (`isbn13ToIsbn10`, `isbnVariants`). KitapSeç/Bora Dağıtım adayları elendi (arama uç noktaları JS/captcha ile korumalı); yalnızca "kullanıcı köprüleri" olarak raporda kalabilir.
+- **Hata ayrımı:** `FetchOutcome` (FOUND / NOT_FOUND / SOURCES_UNREACHABLE) ile "künye bulunamadı" ve "kaynaklara şu anda ulaşılamıyor" mesajları ayrılır.
 - Bilinen sınırlama: bazı gerçek Türkçe ISBN'lerde OL hâlâ yanlış kayıt döndürebiliyor (9789750718533 → "1984"). Google Books birincil kaynak olduğu için Google döndüğünde bu sınıf hatalar azalacak.
 
 ---

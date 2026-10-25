@@ -43,6 +43,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun lookup(isbn: String): com.ender.kitaplik.data.RemoteMeta? = repo.lookup(isbn)
 
+    /** Son lookup() sonucunun turu: "kayit yok" mu, "kaynaklara ulasilamadi" mi? */
+    fun fetchOutcome(): com.ender.kitaplik.data.BookMetadataSource.FetchOutcome = repo.fetchOutcome()
+
     /** Ayni eserin farkli baskisi kutuphanede var mi? */
     suspend fun findEdition(isbn: String, meta: com.ender.kitaplik.data.RemoteMeta?): BookEntity? =
         repo.findEditionMatch(isbn, meta)

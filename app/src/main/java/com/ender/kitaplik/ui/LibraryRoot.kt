@@ -102,6 +102,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ender.kitaplik.BuildConfig
 import com.ender.kitaplik.data.BookEntity
+import com.ender.kitaplik.data.BookMetadataSource
 import com.ender.kitaplik.data.RemoteMeta
 import com.ender.kitaplik.data.normalizeIsbn
 import com.ender.kitaplik.ui.shelf.Bookshelf
@@ -125,7 +126,9 @@ private data class PendingLookup(
     val meta: RemoteMeta?,
     /** Ayni eserin kutuphanede bulunan baska baskisi. */
     val match: BookEntity? = null,
-    val checkingEditions: Boolean = false
+    val checkingEditions: Boolean = false,
+    /** Kunye bulunamadiysa sebebi: "kayit yok" mu, "kaynaklara ulasilamadi" mi? */
+    val outcome: BookMetadataSource.FetchOutcome? = null
 )
 
 private fun Rect.snapped(): Rect = Rect(
@@ -386,7 +389,12 @@ fun LibraryRoot() {
                     // Kutuphanede yok: once Google Books, olmazsa Open Library
                     pending = PendingLookup(isbn = isbn, loading = true, meta = null)
                     val meta = vm.lookup(isbn)
-                    pending = PendingLookup(isbn = isbn, loading = false, meta = meta)
+                    pending = PendingLookup(
+                        isbn = isbn,
+                        loading = false,
+                        meta = meta,
+                        outcome = vm.fetchOutcome()
+                    )
 
                     // ISBN farkli olsa da ayni eserin baska baskisi rafta olabilir
                     if (meta != null) {
@@ -1135,7 +1143,12 @@ private fun AddBookSheet(
 
                 else -> {
                     Text(
-                        text = "Künye bulunamadı (Google Books ve Open Library). Yine de ISBN ile rafa ekleyebilirsin, bilgiler sonra tamamlanır.",
+                        text = when (lookup.outcome) {
+                            BookMetadataSource.FetchOutcome.SOURCES_UNREACHABLE ->
+                                "Künye kaynaklarına şu anda ulaşılamıyor (Google Books / Open Library). İnternetini kontrol edip tekrar deneyebilirsin; yine de ISBN ile rafa ekleyebilirsin."
+                            else ->
+                                "Künye bulunamadı (Google Books ve Open Library). Yine de ISBN ile rafa ekleyebilirsin, bilgiler sonra tamamlanır."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

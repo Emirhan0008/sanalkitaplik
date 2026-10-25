@@ -33,6 +33,9 @@ class LibraryRepository(
     /** Ayarlar sekmesi icin kaynak sagligi ozeti (Google devre kesici + son hata). */
     fun sourceHealth(): BookMetadataSource.SourceHealth = metadataSource.health()
 
+    /** Son lookup() sonucunun turu: "kayit yok" mu, "kaynaklara ulasilamadi" mi? */
+    fun fetchOutcome(): BookMetadataSource.FetchOutcome = metadataSource.lastOutcome
+
     /**
      * Kapak onbellegini siler (dosyalar + coverPath yollari). Donus: silinen dosya sayisi.
      * Yenileri kapak on indirmesi zamanla geri indirir.

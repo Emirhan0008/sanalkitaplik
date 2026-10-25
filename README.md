@@ -41,8 +41,11 @@ tetiklenmez.
    (canlı doğrulama: geçerli/geçersiz ISBN geri bildirimi).
 3. Kitap Room veritabanında varsa: raf sekmesine dönülür, sırtın ekran koordinatı alınır,
    `Animatable` ile sırt dışarı çıkar → kendi ekseninde döner → tam ekran kapağa dönüşür.
-4. Kitap yoksa: **önce Google Books API**, `totalItems: 0` ya da eksik künye dönerse
-   **Open Library** sorgulanır. Bulunan künye kapak önizlemesi + kaynak etiketiyle gösterilir;
+4. Kitap yoksa künye zinciri çalışır: **önce Google Books API** (`q=isbn:` ISBN-13 ve ISBN-10
+   biçimleriyle denenir); arama backend'i yanıt vermezse **Google Kitaplar web köprüsü**
+   (ISBN → hacim ID'si → resmi `volumes.get`) devreye girer. Sonuç yoksa **Open Library**
+   4 adımlı zincirle sorgulanır (`/isbn/` → `/isbn/{isbn10}` → `api/books?bibkeys` →
+   `search.json?isbn=`). Bulunan künye kapak önizlemesi + kaynak etiketiyle gösterilir;
    "Rafa ekle" ile kayıt anında oluşur. Hiçbiri bulunamazsa yine de ISBN ile eklenir,
    bilgiler arka planda tamamlanır (çevrimdışı çalışır).
 5. **Baskı eşleştirme:** Aynı kitabın farklı baskıları farklı ISBN taşır. ISBN rafta yoksa
@@ -85,6 +88,9 @@ Kapaklar `files/covers/<isbn>.jpg` olarak cihazda tutulur (çevrimdışı çalı
 - 5 başarısız denemeden sonra detay ekranında **"Künye eksik · yeniden dene"** rozeti çıkar.
 - Open Library kaydı istenen ISBN'i listelemiyorsa (ya da yalnızca `0000000000` gibi sahte ISBN
   taşıyorsa) künye reddedilir; böylece rastgele/yanlış başlık kütüphaneye yazılmaz.
+- Bulunamama mesajı iki durumu ayırır: **"kayıt yok"** (kaynaklar yanıt verdi, künye yok) ile
+  **"kaynaklara ulaşılamıyor"** (ağ/503; tekrar denenebilir). Google Books arama backend'i
+  geçici 503 (`backendFailed`) verdiğinde hacim-ID köprüsü devreye girer.
 
 ## Yedekleme / dışa aktarma
 

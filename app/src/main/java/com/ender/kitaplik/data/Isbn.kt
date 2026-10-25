@@ -45,3 +45,23 @@ private fun isbn10ToIsbn13(isbn10: String): String? {
     val body = "978" + isbn10.take(9)
     return body + isbn13CheckDigit(body)
 }
+
+/**
+ * ISBN-13'ten ISBN-10 uretir (yalnizca 978 on ekli; 979'un ISBN-10'u yoktur).
+ * Bazi kayitlarda eski ISBN-10 formu kayitli oldugu icin aramada islevseldir.
+ */
+fun isbn13ToIsbn10(isbn13: String): String? {
+    if (isbn13.length != 13 || !isbn13.startsWith("978")) return null
+    val body = isbn13.slice(3..11)
+    var sum = 0
+    for (i in 0 until 9) sum += (body[i] - '0') * (10 - i)
+    val check = (11 - sum % 11) % 11
+    return body + (if (check == 10) "X" else check.toString())
+}
+
+/**
+ * Kunye sorgularinda denenecek ISBN bicimleri: dogal hali + karsilikli donusum.
+ * Orn. 9786254085086 -> [9786254085086, 6254085089]
+ */
+fun isbnVariants(isbn13: String): List<String> =
+    listOfNotNull(isbn13, isbn13ToIsbn10(isbn13)).distinct()

@@ -147,6 +147,7 @@ Kanıt (emülatör, `emulator-5556`):
 - **Ek sağlamlaştırma:** Open Library, tanınmayan ISBN'lerde başka kayda yönlendirip yanlış künye döndürebiliyor (ör. 9780000000002 → "Kitab Jurumiyyah"). Artık kaydın ISBN listesi istenen ISBN'i içermiyorsa ya da yalnızca yer tutucu (`0000000000`, `9999999999`, `9789999999991` gibi 8+ yinelenen rakamlı) ISBN'ler eşleşiyorsa künye reddediliyor. Kural Google hacim kimlikleri + OL `api/books`/`search.json` adımlarında da geçerli; "temiz" eşleşme yoksa zincir bir sonraki adıma geçer.
 - **Künye zinciri v2 (ISBN-arastirma.md):** Google `volumes.list` arama backend'i kalıcı/aralıklı 503 (`backendFailed`, Google Issue Tracker #536042535) döndüğü için zincir güçlendirildi: (1) `q=isbn:` ISBN-13 + ISBN-10 biçimleriyle denenir; (2) **Google Kitaplar web köprüsü** — `books.google.com/books?vid=ISBN{isbn}` sayfasından yalnızca hacim ID'si okunur, künye resmi `volumes.get` ile çekilir (yanlış hacim ISBN doğrulamasıyla reddedilir); (3) Open Library 4 adım: `/isbn/{isbn}.json` → `/isbn/{isbn10}.json` → `api/books?bibkeys=` → `search.json?isbn=`. ISBN-10/13 karşılıklı dönüşüm `Isbn.kt`'de (`isbn13ToIsbn10`, `isbnVariants`). KitapSeç/Bora Dağıtım adayları elendi (arama uç noktaları JS/captcha ile korumalı); yalnızca "kullanıcı köprüleri" olarak raporda kalabilir.
 - **Hata ayrımı:** `FetchOutcome` (FOUND / NOT_FOUND / SOURCES_UNREACHABLE) ile "künye bulunamadı" ve "kaynaklara şu anda ulaşılamıyor" mesajları ayrılır.
+- **Doğrulama (2026-10-25/26, emülatör + fiziksel telefon):** `9786254085086` artık *"Dokuzuncu Hariciye Kogusu / Peyami Safa / 2023-02 / Sayfa 112 / Kaynak: Google Books"* buluyor (önce "bulunamadı" diyordu). Telefonda kitabın **gerçek barkodu kamerayla taranıp** aynı künyeyle rafa eklendi. Eski baskı `9789754370485` → "Aynı eserin başka bir baskısı kütüphanende" eşleşmesi + OL künyesi (*Ötüken Neşriyat · 2021-09*). Uçak modunda "kaynaklara ulaşılamıyor" mesajı; kirli OL kayıtlarında "künye bulunamadı" mesajı. JSON yedek al/yükle (14 kayıt) ve arama akışları doğrulandı.
 - Bilinen sınırlama: bazı gerçek Türkçe ISBN'lerde OL hâlâ yanlış kayıt döndürebiliyor (9789750718533 → "1984"). Google Books birincil kaynak olduğu için Google döndüğünde bu sınıf hatalar azalacak.
 
 ---
@@ -186,7 +187,7 @@ Kanıt (fiziksel telefon M2101K7BG, üç kabul kriteri de geçti):
 
 ---
 
-## Faz 6 — Haptik ve cila (⏳ iki küçük açık: haptik onayı, raf açılışı ölçümü)
+## Faz 6 — Haptik ve cila (✅ tamam — haptik his onayı kullanıcı kararıyla atlandı)
 
 **Neden:** Uygulama işlevsel ama "pahalı" hissettirmiyor.
 
@@ -204,7 +205,8 @@ Kanıt (fiziksel telefon M2101K7BG, üç kabul kriteri de geçti):
 
 Kanıt (fiziksel telefon M2101K7BG):
 - **Haptik:** `ui/Haptics.kt` `tickHaptic()` (VibrationEffect.createOneShot, VIBRATE izni);
-  barkod okunuşunda 26 ms / rafdan kalkışta 24 ms. (Hissiyat cihaz sahibince onaylanacak.)
+  barkod okunuşunda 26 ms / rafdan kalkışta 24 ms. (Hissiyat onayı kullanıcı kararıyla
+  atlandı: "haptik his çok önemli değil".)
 - **Yay + gölge:** detay içeriği `spring(0.82, 220)` ile yerine oturur; kapak gölgesi
   `shadowElevation` yerine yumuşak radyal gradient (GPU gölge katmanı animasyonda
   kare kilitliyordu).
@@ -250,12 +252,13 @@ Kanıt (fiziksel telefon M2101K7BG):
   büyük bölümü kaybolur; telefon rakamları (soğuk açılış 3.6 sn) zaten hedefte.
 
 Açık:
-1. 2. kabul kriterinin **raf açılışı** ayağının fiziksel telefonda framestats ölçümü
-   (uçuş ayağı telefonda %0 ile geçti). Emülatör (EnderTest) ölçümleri yalnız göreli
-   sinyal için geçerli: 3 AVD paylaşımı + yazılım GPU mutlak rakamları şişiriyor
-   (ör. soğuk açılış 15 sn); ayrıca API 35 + BLAST'te framestats satırları boş geliyor,
-   özet sayaçlar + `Choreographer` ile ölçülüyor.
-2. Haptik hissiyatının cihaz sahibince onayı (1. kabul kriteri).
+1. ~~2. kabul kriterinin **raf açılışı** ayağının fiziksel telefonda framestats ölçümü~~ →
+   **Tamam** (telefon: raf açılışı soğuk TotalTime 2578 ms, atlanan kare %0.00; uçuş ayağı
+   120 kare / %0.00). Emülatör (EnderTest) ölçümleri yalnız göreli sinyal içindi: 3 AVD
+   paylaşımı + yazılım GPU mutlak rakamları şişiriyor (ör. soğuk açılış 15 sn); ayrıca
+   API 35 + BLAST'te framestats satırları boş geliyor, özet sayaçlar + `Choreographer`
+   ile ölçülüyor.
+2. ~~Haptik hissiyatının cihaz sahibince onayı (1. kabul kriteri).~~ → **Atlandı** (kullanıcı kararı, 2026-10-26).
 
 ---
 

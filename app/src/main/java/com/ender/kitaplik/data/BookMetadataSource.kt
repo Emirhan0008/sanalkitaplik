@@ -208,7 +208,13 @@ class BookMetadataSource(
                 gotResponse = true
                 val items = json.optJSONArray("items")
                 if (items != null && items.length() > 0) {
-                    parseGoogleVolume(items.getJSONObject(0))?.let { return it }
+                    val vol = items.getJSONObject(0)
+                    // Kimlik listesi varsa ISBN dogrulanir (yer tutucu kayitlar suzulur);
+                    // yoksa arama zaten ISBN ile yapildigi icin kabul edilir.
+                    val ids = vol.optJSONObject("volumeInfo")?.optJSONArray("industryIdentifiers")
+                    if (ids == null || volumeHasIsbn(vol, isbn)) {
+                        parseGoogleVolume(vol)?.let { return it }
+                    }
                 }
             } catch (e: Exception) {
                 lastError = e
@@ -273,7 +279,11 @@ class BookMetadataSource(
         val ids = volume.optJSONObject("volumeInfo")?.optJSONArray("industryIdentifiers") ?: return false
         val wanted = isbnVariants(isbn).toSet()
         for (i in 0 until ids.length()) {
-            normalizeIsbn(ids.getJSONObject(i).optString("identifier"))?.let { if (it in wanted) return true }
+            val cleaned = ids.getJSONObject(i).optString("identifier")
+                .filter { it.isDigit() || it == 'X' || it == 'x' }.uppercase()
+            // Yer tutucu ISBN'ler (9789999999991 vb.) dogrulama sayilmaz.
+            if (isPlaceholderIsbn(cleaned)) continue
+            normalizeIsbn(cleaned)?.let { if (it in wanted) return true }
         }
         return false
     }
@@ -317,6 +327,11 @@ class BookMetadataSource(
                 val node = json.optJSONObject("ISBN:$c") ?: return@runCatching null
                 val title = node.optString("title")
                 if (title.isBlank()) return@runCatching null
+                // Kirli kayit yonlendirmeleri: kaydin kendi ISBN alanlari da dogrulanir.
+                val ids = node.optJSONObject("identifiers")
+                if (!verifiedIsbnMatch(listOf(ids?.optJSONArray("isbn_13"), ids?.optJSONArray("isbn_10")), c)) {
+                    return@runCatching null
+                }
                 Raw(
                     title = title,
                     authors = node.optJSONArray("authors").joinObjects("name"),
@@ -335,11 +350,19 @@ class BookMetadataSource(
             val raw = runCatching {
                 val json = getJson(
                     "https://openlibrary.org/search.json?isbn=$c" +
-                        "&fields=title,author_name,publisher,first_publish_year,number_of_pages_median&limit=3"
+                        "&fields=title,author_name,publisher,first_publish_year,number_of_pages_median,isbn&limit=5"
                 )
                 val docs = json.optJSONArray("docs") ?: return@runCatching null
-                if (docs.length() == 0) return@runCatching null
-                val doc = docs.getJSONObject(0)
+                // Arama yaniltici olabilir: yalnizca ISBN'i dogrulanan ilk kayit kabul edilir.
+                var verified: JSONObject? = null
+                for (i in 0 until docs.length()) {
+                    val doc = docs.getJSONObject(i)
+                    if (verifiedIsbnMatch(listOf(doc.optJSONArray("isbn")), c)) {
+                        verified = doc
+                        break
+                    }
+                }
+                val doc = verified ?: return@runCatching null
                 Raw(
                     title = doc.optString("title"),
                     authors = doc.optJSONArray("author_name").joinArray(),
@@ -361,23 +384,37 @@ class BookMetadataSource(
      * Open Library baski kaydi istenen ISBN'i listeliyor mu?
      * Alanlar hic yoksa dogrulanamaz -> kabul (eski kayitlar).
      */
-    private fun listsIsbn(json: JSONObject, isbn: String): Boolean {
+    private fun listsIsbn(json: JSONObject, isbn: String): Boolean =
+        verifiedIsbnMatch(
+            listOf(json.optJSONArray("isbn_13"), json.optJSONArray("isbn_10")),
+            isbn
+        )
+
+    /**
+     * ISBN listeleri hedef ISBN'i dogruluyor mu?
+     * OL'de yer tutucu ISBN'li (0000000000, 9999999999 vb.) kirli kayitlar
+     * baska ISBN'leri sahiplenebiliyor; temiz eslesme yoksa kayit reddedilir.
+     */
+    private fun verifiedIsbnMatch(isbnArrays: List<org.json.JSONArray?>, isbn: String): Boolean {
         // Karsilastirma her zaman ISBN-13 uzerinden: aday ISBN-10 olsa bile.
         val target = normalizeIsbn(isbn) ?: isbn
         val listed = mutableListOf<String>()
-        json.optJSONArray("isbn_13")?.let { arr ->
-            for (i in 0 until arr.length()) listed += arr.optString(i)
-        }
-        json.optJSONArray("isbn_10")?.let { arr ->
+        for (arr in isbnArrays) {
+            if (arr == null) continue
             for (i in 0 until arr.length()) listed += arr.optString(i)
         }
         if (listed.isEmpty()) return true
         return listed.any { raw ->
             val cleaned = raw.filter { it.isDigit() || it == 'X' || it == 'x' }.uppercase()
-            // OL'de "0000000000" gibi sahte ISBN'ler checksum'i gecse bile kaydi guvenilmez kilar.
-            val junk = cleaned.count { it == '0' } >= 7
-            !junk && normalizeIsbn(cleaned) == target
+            !isPlaceholderIsbn(cleaned) && normalizeIsbn(cleaned) == target
         }
+    }
+
+    /** Yer tutucu ISBN: "0000000000", "9999999999" gibi cok yinelenen rakamli sahte numaralar. */
+    private fun isPlaceholderIsbn(cleaned: String): Boolean {
+        if (cleaned.isEmpty()) return true
+        val maxRun = cleaned.groupingBy { it }.eachCount().values.max()
+        return maxRun >= 8 || cleaned.count { it == '0' } >= 7
     }
 
     /** Google Books API URL'i: anahtar (local.properties) ve ulke parametresi ekler. */

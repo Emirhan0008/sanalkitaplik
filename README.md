@@ -86,8 +86,10 @@ Kapaklar `files/covers/<isbn>.jpg` olarak cihazda tutulur (çevrimdışı çalı
 - Tek kuyruk (`enqueueUniqueWork` + `APPEND_OR_REPLACE`): aynı iş için ikinci worker oluşmaz, uygulama
   kapalıyken de tamamlanır.
 - 5 başarısız denemeden sonra detay ekranında **"Künye eksik · yeniden dene"** rozeti çıkar.
-- Open Library kaydı istenen ISBN'i listelemiyorsa (ya da yalnızca `0000000000` gibi sahte ISBN
-  taşıyorsa) künye reddedilir; böylece rastgele/yanlış başlık kütüphaneye yazılmaz.
+- Open Library kaydı istenen ISBN'i listelemiyorsa (ya da yalnızca `0000000000`, `9999999999`
+  gibi yer tutucu ISBN taşıyorsa) künye reddedilir; böylece rastgele/yanlış başlık kütüphaneye
+  yazılmaz. Aynı doğrulama Google hacim kimliklerinde ve OL `api/books` / `search.json`
+  adımlarında da uygulanır.
 - Bulunamama mesajı iki durumu ayırır: **"kayıt yok"** (kaynaklar yanıt verdi, künye yok) ile
   **"kaynaklara ulaşılamıyor"** (ağ/503; tekrar denenebilir). Google Books arama backend'i
   geçici 503 (`backendFailed`) verdiğinde hacim-ID köprüsü devreye girer.

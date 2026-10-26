@@ -22,8 +22,10 @@ Durum işaretleri: **✅ tamam** · **⬜ planlandı**
 | Sırt yazısını Canvas'a taşıma (açılış donması giderildi) | ✅ |
 | Uçuş animasyonu akıcılığı (2D, GPU dostu) | ✅ |
 
-Kanıt: `9789750718533` → *Tutunamayanlar / Oğuz Atay / İletişim 1971 / 724 s.*
-(Google 0 sonuç döndürdü, Open Library yedeği künyeyi getirdi.)
+Kanıt: `9789754700114` → *Tutunamayanlar / Oğuz Atay / İletişim*.
+(Not: bu satırda önce yanlışlıkla `9789750718533` yazıyordu. Doğrulandı: `9789750718533`
+başka bir kitaptır — *1984 / George Orwell / Can Yayınları*. *Tutunamayanlar / İletişim*
+baskısının ISBN'i `9789754700114`'tür.)
 
 Kanıt (uçuş animasyonu, fiziksel telefon M2101K7BG):
 - Sırt → kapak dönüşümü 3D'den (rotationY + cameraDistance + shadowElevation) 2D'ye
@@ -147,8 +149,24 @@ Kanıt (emülatör, `emulator-5556`):
 - **Ek sağlamlaştırma:** Open Library, tanınmayan ISBN'lerde başka kayda yönlendirip yanlış künye döndürebiliyor (ör. 9780000000002 → "Kitab Jurumiyyah"). Artık kaydın ISBN listesi istenen ISBN'i içermiyorsa ya da yalnızca yer tutucu (`0000000000`, `9999999999`, `9789999999991` gibi 8+ yinelenen rakamlı) ISBN'ler eşleşiyorsa künye reddediliyor. Kural Google hacim kimlikleri + OL `api/books`/`search.json` adımlarında da geçerli; "temiz" eşleşme yoksa zincir bir sonraki adıma geçer.
 - **Künye zinciri v2 (ISBN-arastirma.md):** Google `volumes.list` arama backend'i kalıcı/aralıklı 503 (`backendFailed`, Google Issue Tracker #536042535) döndüğü için zincir güçlendirildi: (1) `q=isbn:` ISBN-13 + ISBN-10 biçimleriyle denenir; (2) **Google Kitaplar web köprüsü** — `books.google.com/books?vid=ISBN{isbn}` sayfasından yalnızca hacim ID'si okunur, künye resmi `volumes.get` ile çekilir (yanlış hacim ISBN doğrulamasıyla reddedilir); (3) Open Library 4 adım: `/isbn/{isbn}.json` → `/isbn/{isbn10}.json` → `api/books?bibkeys=` → `search.json?isbn=`. ISBN-10/13 karşılıklı dönüşüm `Isbn.kt`'de (`isbn13ToIsbn10`, `isbnVariants`). KitapSeç/Bora Dağıtım adayları elendi (arama uç noktaları JS/captcha ile korumalı); yalnızca "kullanıcı köprüleri" olarak raporda kalabilir.
 - **Hata ayrımı:** `FetchOutcome` (FOUND / NOT_FOUND / SOURCES_UNREACHABLE) ile "künye bulunamadı" ve "kaynaklara şu anda ulaşılamıyor" mesajları ayrılır.
+- **Kaynak bazlı E2E (2026-10-26, emülatör, uygulama UI'ı):** her kaynak farklı ISBN'le uçtan uca
+  doğrulandı — `9780141439518` → *Pride and Prejudice / Jane Austen / Penguin 2002* (**Google Books**);
+  `9789754370485` → *Dokuzuncu Hariciye Koğuşu / Ötüken 2021-09* (**Open Library**);
+  `9780140449136` → *Crime and punishment / Dostoyevsky / Penguin 2003* (**Open Library**);
+  `9789750718533` → *1984 / George Orwell / Can Yayınları*. **Bulgu:** devre kesici açıkken
+  Google'a hiç sorulmadığı için "Kaynak: Open Library" etiketi çıkıyor; devre kesici kapalıyken
+  aynı ISBN **Google Kitaplar köprüsü** ile *"Bin dokuz yüz seksen dört / George Orwell / Can
+  Yayinlari · 2014-03"* olarak **Kaynak: Google Books** etiketiyle döndü (A/B ile kesinleşti).
+  Yani "Kaynak:" etiketi **künyenin doğruluğunu değil, o an hangi kaynağın cevap verdiğini** gösterir.
 - **Doğrulama (2026-10-25/26, emülatör + fiziksel telefon):** `9786254085086` artık *"Dokuzuncu Hariciye Kogusu / Peyami Safa / 2023-02 / Sayfa 112 / Kaynak: Google Books"* buluyor (önce "bulunamadı" diyordu). Telefonda kitabın **gerçek barkodu kamerayla taranıp** aynı künyeyle rafa eklendi. Eski baskı `9789754370485` → "Aynı eserin başka bir baskısı kütüphanende" eşleşmesi + OL künyesi (*Ötüken Neşriyat · 2021-09*). Uçak modunda "kaynaklara ulaşılamıyor" mesajı; kirli OL kayıtlarında "künye bulunamadı" mesajı. JSON yedek al/yükle (14 kayıt) ve arama akışları doğrulandı.
-- Bilinen sınırlama: bazı gerçek Türkçe ISBN'lerde OL hâlâ yanlış kayıt döndürebiliyor (9789750718533 → "1984"). Google Books birincil kaynak olduğu için Google döndüğünde bu sınıf hatalar azalacak.
+- Bilinen sınırlama / düzeltme (2026-10-26): daha önce bu satırda "`9789750718533` → '1984' yanlış
+  kayıt" notu vardı — **yanlışmış**. İki kaynak da bağımsız olarak doğruladı: `9789750718533`
+  gerçekten *1984 / George Orwell / Can Yayınları* (Google Kitaplar köprüsü: *"Bin dokuz yüz seksen
+  dört" / George Orwell / Can Yayınları · 2014-03*, `ISBN_13: 9789750718533`; Open Library:
+  *1984 / Can Yayınları*, `isbn_13: 9789750718533`). Künye doğru; yalnızca başlık Google'da Türkçe
+  yazımla ("Bin dokuz yüz seksen dört"), OL'de "1984" olarak geliyor. Gerçek "yanlış kayıt"
+  sınıfı, yer tutucu ISBN'li OL kirli kayıtlarıydı (ör. `9789999999991`) — o sınıf yer tutucu
+  süzgeciyle kapatıldı.
 
 ---
 

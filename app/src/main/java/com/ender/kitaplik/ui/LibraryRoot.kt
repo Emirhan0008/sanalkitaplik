@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -98,6 +99,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -224,12 +226,28 @@ fun LibraryRoot() {
     // Dokunulabilirlik karari tiklama ANINDA okunur (kararli lambda). Parametre
     // kimligi sabit kaldigi icin sekme gecislerinde "interactive" degisimi
     // 180 sirtin tamamini yeniden kurmaz (olculen: ~90 ms COMP + ~90 ms GPU).
-    val shelfInteractive: () -> Boolean = remember { { tabAlphas[0].value == 1f } }
-    val listInteractive: () -> Boolean = remember { { tabAlphas[1].value == 1f } }
+    // Toleransli karsilastirma: Animatable hedefe tam oturur, ancak animasyon
+    // son karesi oncesinde kesilirse deger tam 1f olmayabilir; esitlik kontrolu
+    // o zaman dokunmayi sessizce yutuyordu (raf sirti tiklamasi bosuna duserdi).
+    val shelfInteractive: () -> Boolean = remember { { tabAlphas[0].value > 0.99f } }
+    val listInteractive: () -> Boolean = remember { { tabAlphas[1].value > 0.99f } }
+    // Liste katmani bir kez kurulduktan sonra bir daha dispose edilmez,
+    // yalnizca alfa ile solar (raf katmaniyla ayni kural). Her geciste LazyColumn
+    // yeniden kurulunca tek bir ~94 ms'lik kare olusuyordu. ONEMLI: gizliyken
+    // dokunma VE kaydirmasi tamamen kapali olmali; yoksa gorunmez satirlar
+    // raf dokunmalarini yutar / yanlis dugmelere duser.
+    var listAlive by remember { mutableStateOf(false) }
     val switchTab: suspend (Int) -> Unit = switchTab@{ newTab ->
         if (newTab == tab) return@switchTab
         val oldTab = tab
         tab = newTab
+        if (newTab == 1) listAlive = true
+        // Yeni sekmenin ilk kurulumu (LazyColumn satirlari, kapak subkompozisyonu)
+        // animasyon BASLAMADAN odensin: animasyon saati animateTo ile baslar,
+        // kurulum o saate binerse ilk kare uzar ve solma takilirdi. Tiklama ile
+        // solma arasinda kisa bir duraksama olur, solmanin kendisi pürüzsüzdür.
+        withFrameNanos { }
+        withFrameNanos { }
         coroutineScope {
             launch { tabAlphas[oldTab].animateTo(0f, tween(160)) }
             launch { tabAlphas[newTab].animateTo(1f, tween(220)) }
@@ -334,6 +352,13 @@ fun LibraryRoot() {
                 // yalnizca alfa ile yumusak girer (BookDetailLayer: visible=false iken
                 // butun katmanlar alfa 0'dir, hicbir sey cizilmez).
                 detailIsbn = shelfBook.key
+                // Kurulum kareleri (ucus katmani + kunye) animasyon BASLAMADAN
+                // odensin. animateTo animasyon saatini baslatir; kurulum o saate
+                // binerse ilk uzun karede saat ilerler, kapak ucusun ortasina
+                // sicrardi. Boylece tiklama sonrasi kisa bir duraksama olur,
+                // ucusun kendisi ilk karesinden son karesine kadar duzgundur.
+                withFrameNanos { }
+                withFrameNanos { }
                 progress.animateTo(
                     targetValue = 1f,
                     // 900 ms cok yavasti ("1 sn siyah ekran" hissi). 320 ms + yumusak
@@ -587,14 +612,17 @@ fun LibraryRoot() {
                         )
                     }
 
-                    // Liste katmani yalnizca geciste / Kitaplarim sekmesinde ayakta;
-                    // ustte durur, gecis boyunca dokunmalari o alir.
-                    if (tab == 1 || tabAlphas[1].value > 0f) {
+                    // Liste katmani bir kez kurulunca ayakta kalir; yalnizca alfa
+                    // ile solar. Geciste / Kitaplarim sekmesinde tam gorunur.
+                    if (tab == 1 || tabAlphas[1].value > 0f || listAlive) {
                         BookListTab(
                             books = books,
                             // Liste tamamen oturunca dokunulabilir; solma sirasinda
                             // dokunmalar gecisi bolmesin. Karar tiklama aninda okunur.
                             interactive = listInteractive,
+                            // Gizliyken dokunma/kaydirma tamamen kapali: gorunmez
+                            // satirlar raf dokunmalarini yutmasin.
+                            active = tab == 1,
                             onBookClick = { entity ->
                                 scope.launch {
                                     // Listeden rafa donuste solma yok: secilen kitap
@@ -608,11 +636,19 @@ fun LibraryRoot() {
                             },
                             modifier = Modifier
                                 .fillMaxSize()
+                                // Gizliyken (alfa 0) katman ekran disina tasinir:
+                                // hit-test bu bolume hic girmez. Boylece gizli
+                                // liste, raf sirti dokunmalarini yutamaz (gizli
+                                // satirlarin clickable'i kapaliyken bile tiklamayi
+                                // tukettigi olculdu; offset kesin cozumdur).
+                                .offset {
+                                    IntOffset(0, if (tabAlphas[1].value <= 0f) 100_000 else 0)
+                                }
                                 .graphicsLayer { alpha = tabAlphas[1].value }
                         )
                     }
 
-                    // Ayarlar katmani ayni kuralla: yalnizca geciste / sekmedeyken.
+                    // Ayarlar katmani hafiftir: yalnizca geciste / sekmedeyken kurulur.
                     if (tab == 2 || tabAlphas[2].value > 0f) {
                         SettingsTab(
                             health = sourceHealth,
@@ -1048,6 +1084,12 @@ private fun BookListTab(
     books: List<BookEntity>,
     onBookClick: (BookEntity) -> Unit,
     interactive: () -> Boolean = { true },
+    /**
+     * Sekme gorunurken true. false iken satirlar dokunmayi YUTMAZ ve liste
+     * kaydirilamaz: gizli katman raf dokunmalarinin ustune binmesin.
+     * (Karar tiklama aninda okunur: interactive -> alfa 1 kontrolu.)
+     */
+    active: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     if (books.isEmpty()) {
@@ -1073,7 +1115,8 @@ private fun BookListTab(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 140.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        userScrollEnabled = active
     ) {
         items(books, key = { it.isbn }) { book ->
             Row(
@@ -1081,7 +1124,12 @@ private fun BookListTab(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { if (interactive()) onBookClick(book) }
+                    .then(
+                        // Gizliyken clickable dugumu hic kurulmaz: kapali bir
+                        // clickable'in bile tiklamayi tukettigi olculdu.
+                        if (active) Modifier.clickable { if (interactive()) onBookClick(book) }
+                        else Modifier
+                    )
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1089,7 +1137,8 @@ private fun BookListTab(
                     book = book,
                     modifier = Modifier.width(48.dp).aspectRatio(2f / 3f),
                     corner = 6.dp,
-                    compact = true
+                    compact = true,
+                    subcompose = false
                 )
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {

@@ -99,6 +99,10 @@ class LibraryRepository(
     suspend fun lookup(isbn: String): RemoteMeta? =
         runCatching { metadataSource.fetch(isbn, withCover = true) }.getOrNull()
 
+    /** Kitap adiyla arama (OCR / elle isimle arama): cevrimici aday listesi. */
+    suspend fun searchByTitle(title: String, authors: String): List<SearchCandidate> =
+        runCatching { metadataSource.searchByTitle(title, authors) }.getOrDefault(emptyList())
+
     /**
      * ISBN kutuphanede yok ama ayni eserin baska baskisi olabilir.
      * 1) Yerel kayitlarla baslik/yazar benzerligi

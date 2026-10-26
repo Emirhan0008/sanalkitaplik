@@ -15,7 +15,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -87,11 +90,19 @@ fun BookCover(
                     error = { GeneratedCover(book, Modifier.fillMaxSize(), compact) }
                 )
             } else {
+                // Animasyon ici: subcomposition yok. Uretimis kapak YALNIZCA gercek
+                // kapak yuklenene kadar cizilir; sonraki karelerde hicbir is yapmaz.
+                // (Her karede cizilirse metin olcusu + gradyan ucusu yavaslatiyordu.)
+                var coverLoaded by remember(coverPath) { mutableStateOf(false) }
+                if (!coverLoaded) {
+                    GeneratedCover(book, Modifier.fillMaxSize(), compact)
+                }
                 AsyncImage(
                     model = request,
                     contentDescription = book.title,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    onSuccess = { coverLoaded = true }
                 )
             }
         } else {

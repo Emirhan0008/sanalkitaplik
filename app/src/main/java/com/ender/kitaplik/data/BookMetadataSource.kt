@@ -19,6 +19,16 @@ data class RemoteMeta(
     val source: String = ""
 )
 
+/** Isimle aramada gosterilen tek bir aday (rafa eklenebilir). */
+data class SearchCandidate(
+    val isbn: String,
+    val title: String,
+    val authors: String,
+    val publisher: String,
+    val publishedDate: String,
+    val coverUrl: String?
+)
+
 /**
  * Cevrimici metadata kaynagi. Sadece kitap eklenirken cagrilir.
  * Sirasiyla Google Books (API arama -> hacim ID koprusu) -> Open Library.
@@ -183,6 +193,95 @@ class BookMetadataSource(
 
             found.take(60).toList()
         }
+
+    /**
+     * Kitap adi (ve varsa yazar) ile cevrimici arama: "isimle arama".
+     * Once Google Books, ardindan Open Library; ISBN'li sonuclar doner.
+     * Sonuclar ISBN'e gore tekillestirilir, Google sirasi korunur.
+     */
+    suspend fun searchByTitle(title: String, authors: String): List<SearchCandidate> =
+        withContext(Dispatchers.IO) {
+            if (title.isBlank()) return@withContext emptyList()
+            val byIsbn = LinkedHashMap<String, SearchCandidate>()
+            val author = authors.substringBefore(',').trim()
+
+            if (googleAvailable()) runCatching {
+                val query = buildString {
+                    append("intitle:").append(title.trim())
+                    if (author.isNotBlank()) append(" inauthor:").append(author)
+                }
+                val url = googleBooksUrl(
+                    "q=" + java.net.URLEncoder.encode(query, "UTF-8") + "&maxResults=12"
+                )
+                val items = getJson(url, attempts = 2).optJSONArray("items") ?: return@runCatching
+                for (i in 0 until items.length()) {
+                    val info = items.getJSONObject(i).optJSONObject("volumeInfo") ?: continue
+                    val isbn = firstNormalizedIsbn(info.optJSONArray("industryIdentifiers"))
+                        ?: continue
+                    if (isbn in byIsbn) continue
+                    byIsbn[isbn] = SearchCandidate(
+                        isbn = isbn,
+                        title = info.optString("title").trim(),
+                        authors = info.optJSONArray("authors").joinArray(),
+                        publisher = info.optString("publisher").trim(),
+                        publishedDate = info.optString("publishedDate").trim(),
+                        coverUrl = httpsCover(
+                            info.optJSONObject("imageLinks")?.optString("thumbnail")
+                        )
+                    )
+                }
+            }.onFailure { markGoogleDown(it.message) }
+
+            runCatching {
+                val query = buildString {
+                    append("title:\"").append(title.trim()).append('"')
+                    if (author.isNotBlank()) append(" author:\"").append(author).append('"')
+                }
+                val url = "https://openlibrary.org/search.json?q=" +
+                    java.net.URLEncoder.encode(query, "UTF-8") +
+                    // fields verilmezse docs'ta isbn alani hic gelmiyor (varsayilan
+                    // alanlar daraldi) -> tum adaylar elenip bos liste donuyordu.
+                    "&limit=12&fields=key,title,author_name,first_publish_year,cover_i,isbn,publisher"
+                val docs = getJson(url).optJSONArray("docs") ?: return@runCatching
+                for (i in 0 until docs.length()) {
+                    val doc = docs.getJSONObject(i)
+                    val isbn = firstNormalizedIsbn(doc.optJSONArray("isbn")) ?: continue
+                    if (isbn in byIsbn) continue
+                    val coverId = doc.optLong("cover_i", -1L)
+                    byIsbn[isbn] = SearchCandidate(
+                        isbn = isbn,
+                        title = doc.optString("title").trim(),
+                        authors = doc.optJSONArray("author_name").joinArray(),
+                        publisher = doc.optJSONArray("publisher").joinArray()
+                            .substringBefore(',').trim(),
+                        publishedDate = doc.optString("first_publish_year").trim(),
+                        coverUrl = if (coverId > 0) {
+                            "https://covers.openlibrary.org/b/id/$coverId-M.jpg"
+                        } else null
+                    )
+                }
+            }
+
+            byIsbn.values.take(12).toList()
+        }
+
+    /** Google nesne dizisi ya da Open Library dize dizisinden ilk gecerli ISBN. */
+    private fun firstNormalizedIsbn(ids: org.json.JSONArray?): String? {
+        if (ids == null) return null
+        var fallback: String? = null
+        for (j in 0 until ids.length()) {
+            val raw = ids.optJSONObject(j)?.optString("identifier") ?: ids.optString(j)
+            val isbn = normalizeIsbn(raw) ?: continue
+            if (isbn.length == 13) return isbn
+            if (fallback == null) fallback = isbn
+        }
+        return fallback
+    }
+
+    private fun httpsCover(url: String?): String? {
+        val u = url?.trim().orEmpty()
+        return if (u.isEmpty()) null else u.replaceFirst("http://", "https://")
+    }
 
     private data class Raw(
         val title: String,

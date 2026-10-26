@@ -82,7 +82,7 @@ private val SpineColors = listOf(
 @Composable
 fun Bookshelf(
     rows: List<ShelfRow>,
-    interactive: Boolean,
+    interactive: () -> Boolean,
     onRealBookClick: (ShelfBook) -> Unit,
     onBounds: (ShelfBook, Rect) -> Unit,
     modifier: Modifier = Modifier,
@@ -266,7 +266,7 @@ private fun WoodGrain(modifier: Modifier, vertical: Boolean, alpha: Float) {
 @Composable
 private fun ShelfRowView(
     row: ShelfRow,
-    interactive: Boolean,
+    interactive: () -> Boolean,
     onRealBookClick: (ShelfBook) -> Unit,
     onBounds: (ShelfBook, Rect) -> Unit,
     matchedKeys: Set<String>,
@@ -409,7 +409,7 @@ fun BookSpine(
     heightDpOverride: Dp? = null,
     /** Rafta satir yuksekligine oran (0..1); heightDpOverride verilmezse kullanilir. */
     heightFactor: Float? = null,
-    interactive: Boolean = true,
+    interactive: () -> Boolean = { true },
     fillWidth: Boolean = false,
     /** Arama eslesmesi: altin cerceve. */
     matched: Boolean = false,
@@ -525,6 +525,8 @@ fun BookSpine(
                     drawRect(color = GoldBright, style = Stroke(width = 5f))
                 }
             }
-            .then(if (book.isReal && interactive) Modifier.clickable { onClick() } else Modifier)
+            // Tiklama yetkisi tiklama ANINDA lamba ile okunur; boylece sekme
+            // gecisinde interactive degisince sirtin baglayicisi degismez.
+            .then(if (book.isReal) Modifier.clickable { if (interactive()) onClick() } else Modifier)
     )
 }

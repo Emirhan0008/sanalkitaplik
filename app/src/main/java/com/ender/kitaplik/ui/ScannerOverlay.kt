@@ -2,6 +2,7 @@ package com.ender.kitaplik.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -14,9 +15,11 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,7 +29,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FlashOff
@@ -38,6 +44,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -57,6 +65,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -65,16 +75,23 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.text.Text as OcrText
 import java.util.concurrent.Executors
 
 /**
- * Tam ekran barkod tarayici. Ilk okunan ISBN'i iletir.
+ * Tam ekran tarayici. Iki mod:
+ *  - Barkod: ilk okunan ISBN'i iletir.
+ *  - Kapak adi: OCR kitap adini (ve anlarsa yazari) ayri kutulara doldurur;
+ *    kullanici duzenler, "Ara" ile isimle arama baslatir.
  */
 @Composable
 fun ScannerOverlay(
     onClose: () -> Unit,
     onManualEntry: () -> Unit,
-    onIsbn: (String) -> Unit
+    onIsbn: (String) -> Unit,
+    onTitleSearch: (title: String, author: String) -> Unit
 ) {
     val context = LocalContext.current
     var hasPermission by remember {
@@ -84,6 +101,13 @@ fun ScannerOverlay(
         )
     }
     var permissionAsked by remember { mutableStateOf(false) }
+
+    var mode by remember { mutableStateOf(ScanMode.BARCODE) }
+    // OCR sonucu kutulara dolar; kullanici bir kutuya dokundugu anda otomatik
+    // doldurma durur, elle duzenleme korunur.
+    var titleField by remember { mutableStateOf("") }
+    var authorField by remember { mutableStateOf("") }
+    var ocrEdited by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -98,11 +122,22 @@ fun ScannerOverlay(
 
     Box(Modifier.fillMaxSize().background(Color(0xFF080706))) {
         if (hasPermission) {
-            CameraScannerPreview(onIsbn = { isbn ->
-                // Barkod okundugunda kisa tik: tarama basarisini elle hissettirir.
-                context.tickHaptic(26)
-                onIsbn(isbn)
-            })
+            CameraScannerPreview(
+                mode = mode,
+                onIsbn = { isbn ->
+                    // Barkod okundugunda kisa tik: tarama basarisini elle hissettirir.
+                    context.tickHaptic(26)
+                    onIsbn(isbn)
+                },
+                onOcrLines = { lines ->
+                    if (!ocrEdited) {
+                        val t = pickTitle(lines)
+                        val a = pickAuthor(lines, t)
+                        if (t.isNotBlank()) titleField = t
+                        if (a.isNotBlank()) authorField = a
+                    }
+                }
+            )
         } else {
             Column(
                 modifier = Modifier
@@ -134,7 +169,22 @@ fun ScannerOverlay(
         }
 
         // karartma + tarama cercevesi
-        ScanChrome()
+        ScanChrome(mode)
+
+        // Mod secimi: barkod / kapak adi
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 12.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color(0x33000000))
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ModePill("Barkod", mode == ScanMode.BARCODE) { mode = ScanMode.BARCODE }
+            ModePill("Kapak adı", mode == ScanMode.COVER) { mode = ScanMode.COVER }
+        }
 
         Column(
             modifier = Modifier
@@ -143,25 +193,47 @@ fun ScannerOverlay(
                 .padding(bottom = 36.dp, start = 32.dp, end = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "Kitabın arkasındaki barkodu çerçeveye hizala",
-                color = Color(0xCCF3E9DA),
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(14.dp))
-            OutlinedButton(
-                onClick = onManualEntry,
-                border = BorderStroke(1.dp, Color(0x66F3E9DA)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF3E9DA))
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Keyboard,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text("Elle ISBN gir")
+            when (mode) {
+                ScanMode.BARCODE -> {
+                    Text(
+                        text = "Kitabın arkasındaki barkodu çerçeveye hizala",
+                        color = Color(0xCCF3E9DA),
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    OutlinedButton(
+                        onClick = onManualEntry,
+                        border = BorderStroke(1.dp, Color(0x66F3E9DA)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF3E9DA))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Keyboard,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Elle ISBN gir")
+                    }
+                }
+                ScanMode.COVER -> {
+                    CoverSearchPanel(
+                        title = titleField,
+                        author = authorField,
+                        onTitle = { titleField = it; ocrEdited = true },
+                        onAuthor = { authorField = it; ocrEdited = true },
+                        onRescan = {
+                            ocrEdited = false
+                            titleField = ""
+                            authorField = ""
+                        },
+                        onSearch = {
+                            if (titleField.isNotBlank()) {
+                                onTitleSearch(titleField.trim(), authorField.trim())
+                            }
+                        }
+                    )
+                }
             }
         }
 
@@ -181,11 +253,13 @@ fun ScannerOverlay(
 }
 
 @Composable
-private fun ScanChrome() {
+private fun ScanChrome(mode: ScanMode) {
     Box(Modifier.fillMaxSize()) {
         Canvas(Modifier.fillMaxSize()) {
-            val frameWidth = size.width * 0.78f
-            val frameHeight = frameWidth * 0.52f
+            // Barkod: yatay cerceve; kapak adi: dikey (portre) cerceve.
+            val frameWidth = if (mode == ScanMode.COVER) size.width * 0.74f else size.width * 0.78f
+            val frameHeight =
+                if (mode == ScanMode.COVER) frameWidth * 1.35f else frameWidth * 0.52f
             val left = (size.width - frameWidth) / 2f
             val top = size.height * 0.34f
             val right = left + frameWidth
@@ -246,7 +320,11 @@ private fun ScanChrome() {
 }
 
 @Composable
-private fun CameraScannerPreview(onIsbn: (String) -> Unit) {
+private fun CameraScannerPreview(
+    mode: ScanMode,
+    onIsbn: (String) -> Unit,
+    onOcrLines: (List<OcrLine>) -> Unit
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var torchOn by remember { mutableStateOf(false) }
@@ -255,7 +333,14 @@ private fun CameraScannerPreview(onIsbn: (String) -> Unit) {
     val executor = remember { Executors.newSingleThreadExecutor() }
     val released = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
     val currentOnIsbn by rememberUpdatedState(onIsbn)
-    val analyzer = remember { BarcodeAnalyzer { value -> currentOnIsbn(value) } }
+    val currentOnOcrLines by rememberUpdatedState(onOcrLines)
+    val analyzer = remember {
+        ScanAnalyzer(
+            onIsbn = { value -> currentOnIsbn(value) },
+            onOcrLines = { lines -> currentOnOcrLines(lines) }
+        )
+    }
+    LaunchedEffect(mode) { analyzer.mode = mode }
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
@@ -273,7 +358,10 @@ private fun CameraScannerPreview(onIsbn: (String) -> Unit) {
                         val preview = Preview.Builder().build().also {
                             it.setSurfaceProvider(previewView.surfaceProvider)
                         }
+                        @Suppress("DEPRECATION")
                         val analysis = ImageAnalysis.Builder()
+                            // Daha buyuk cozunurluk: kapaktaki kucuk yazi da okunsun.
+                            .setTargetResolution(Size(1280, 720))
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                             .also { it.setAnalyzer(executor, analyzer) }
@@ -327,15 +415,30 @@ private fun CameraScannerPreview(onIsbn: (String) -> Unit) {
     }
 }
 
-private class BarcodeAnalyzer(
-    private val onIsbn: (String) -> Unit
+/** Tarama modu: barkod (ISBN) ya da kapak adi (OCR). */
+enum class ScanMode { BARCODE, COVER }
+
+/** OCR'dan cikan tek bir yazi satiri (yukseklik, aday sehiminde kullanilir). */
+data class OcrLine(val text: String, val height: Int)
+
+/** Mod basina tek analizci: barkod ya da OCR. */
+private class ScanAnalyzer(
+    private val onIsbn: (String) -> Unit,
+    private val onOcrLines: (List<OcrLine>) -> Unit
 ) : ImageAnalysis.Analyzer {
+
+    @Volatile
+    var mode: ScanMode = ScanMode.BARCODE
 
     private val scanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder()
             .setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8)
             .build()
     )
+    private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+    @Volatile
+    private var busy = false
 
     @Volatile
     private var lastValue: String? = null
@@ -345,6 +448,14 @@ private class BarcodeAnalyzer(
 
     @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
+        if (mode == ScanMode.COVER) {
+            analyzeText(imageProxy)
+        } else {
+            analyzeBarcode(imageProxy)
+        }
+    }
+
+    private fun analyzeBarcode(imageProxy: ImageProxy) {
         try {
             val mediaImage = imageProxy.image
             if (mediaImage == null) {
@@ -370,7 +481,165 @@ private class BarcodeAnalyzer(
         }
     }
 
+    private fun analyzeText(imageProxy: ImageProxy) {
+        // OCR agirdir: siradaki kareler islenirken yeni kare aciga alinmaz.
+        if (busy) {
+            imageProxy.close()
+            return
+        }
+        busy = true
+        try {
+            val mediaImage = imageProxy.image
+            if (mediaImage == null) {
+                busy = false
+                imageProxy.close()
+                return
+            }
+            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+            textRecognizer.process(image)
+                .addOnSuccessListener { text -> onOcrLines(extractOcrLines(text)) }
+                .addOnCompleteListener {
+                    busy = false
+                    imageProxy.close()
+                }
+        } catch (t: Throwable) {
+            busy = false
+            runCatching { imageProxy.close() }
+        }
+    }
+
     fun close() {
         scanner.close()
+        textRecognizer.close()
     }
+}
+
+private fun extractOcrLines(text: OcrText): List<OcrLine> {
+    val out = ArrayList<OcrLine>()
+    for (block in text.textBlocks) {
+        for (line in block.lines) {
+            val t = line.text.trim()
+            if (t.length < 2) continue
+            out += OcrLine(t, line.boundingBox?.height() ?: 0)
+        }
+    }
+    return out
+}
+
+/**
+ * Kitap adi adayi: kapakta en buyuk puntolu yazi genelde addir.
+ * Boyca birbirine yakin buyuk satirlar adin devamiysa (en fazla 2 satir) birlestirilir.
+ */
+private fun pickTitle(lines: List<OcrLine>): String {
+    val usable = lines.filter {
+        it.text.any { c -> c.isLetter() } && it.text.length in 2..90
+    }
+    if (usable.isEmpty()) return ""
+    val maxH = usable.maxOf { it.height }.toFloat().coerceAtLeast(1f)
+    val big = usable.filter { it.height >= maxH * 0.8f }
+    return big.take(2).joinToString(" ") { it.text }.trim()
+}
+
+/**
+ * Yazar adayi: "YAZAN/ÇEVİREN" isaretli satirlar ya da ad benzeri (2-4 kelimelik)
+ * satirlar. Bulunamazsa bos doner; kullanici elle doldurabilir.
+ */
+private fun pickAuthor(lines: List<OcrLine>, title: String): String {
+    val nameRe = Regex("^[A-ZÇĞİÖŞÜ][\\p{L}.'-]+(\\s+[A-ZÇĞİÖŞÜ][\\p{L}.'-]+){1,3}$")
+    val markerRe = Regex("(?i)^(yazan|yazarı|yazar|çeviren|hazırlayan)\\s*[:\\-]?\\s*")
+    for (l in lines) {
+        val t = l.text.trim()
+        if (t.equals(title, ignoreCase = true)) continue
+        val candidate = markerRe.replace(t, "").trim().ifBlank { t }
+        val words = candidate.split(Regex("\\s+"))
+        if (words.size in 2..4 && candidate.matches(nameRe)) {
+            return candidate
+        }
+    }
+    return ""
+}
+
+@Composable
+private fun ModePill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        text = label,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) Color(0xFFD9A05B) else Color.Transparent)
+            .clickable { onClick() }
+            .padding(horizontal = 18.dp, vertical = 8.dp),
+        color = if (selected) Color(0xFF201408) else Color(0xCCF3E9DA),
+        style = MaterialTheme.typography.labelLarge
+    )
+}
+
+/** Kapak adi modu: OCR kutulari + Ara. */
+@Composable
+private fun CoverSearchPanel(
+    title: String,
+    author: String,
+    onTitle: (String) -> Unit,
+    onAuthor: (String) -> Unit,
+    onRescan: () -> Unit,
+    onSearch: () -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xE6120E0B))
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Kapaktan okunan bilgiler",
+            color = Color(0x99F3E9DA),
+            style = MaterialTheme.typography.labelMedium
+        )
+        Spacer(Modifier.height(10.dp))
+        OcrField(title, "Kitap adı", onTitle)
+        Spacer(Modifier.height(10.dp))
+        OcrField(author, "Yazar (varsa)", onAuthor)
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                onClick = onRescan,
+                border = BorderStroke(1.dp, Color(0x66F3E9DA)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF3E9DA))
+            ) { Text("Yeniden oku") }
+            Spacer(Modifier.width(12.dp))
+            Button(
+                onClick = onSearch,
+                enabled = title.isNotBlank(),
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFD9A05B),
+                    contentColor = Color(0xFF201408)
+                )
+            ) { Text("Ara") }
+        }
+    }
+}
+
+@Composable
+private fun OcrField(value: String, label: String, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        textStyle = TextStyle(color = Color(0xFFF3E9DA)),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Color(0xFFF3E9DA),
+            unfocusedTextColor = Color(0xFFF3E9DA),
+            cursorColor = Color(0xFFD9A05B),
+            focusedBorderColor = Color(0xFFD9A05B),
+            unfocusedBorderColor = Color(0x66F3E9DA),
+            focusedLabelColor = Color(0xFFD9A05B),
+            unfocusedLabelColor = Color(0x99F3E9DA),
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Color.Transparent
+        )
+    )
 }

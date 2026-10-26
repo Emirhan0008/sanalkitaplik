@@ -42,14 +42,21 @@ fun FlightLayer(
     val entity = book.entity
 
     Box(Modifier.fillMaxSize()) {
-        // arka plan karartma: sirt raftan cikarken raf hala gorunur kalsin diye
-        // gec baslar. Boylece "kitap raftan cikti" ani okunabiliyor.
+        // Arka plan: ucus boyunca ekran koyulasmaz, detay ekraninin sicak krem
+        // zeminine yumusak gecer. (Onceki siyah perde 0xFF0B0A09 -> ekrani ~1 sn
+        // siyah gosteriyordu; kapak da Coil'den diskten cozuldugu icin o aralikta
+        // bos kaliyordu: "siyah ekran, sonra kunye".)
+        // Perde p=0.50'de TAM OPAK olur; raf da tam o noktada cizilmeyi birakir
+        // (LibraryRoot'taki alfa kurali) -> ucusun ikinci yarisinda 180 sirtin
+        // GPU dolgusu odemez, kareler akici kalir.
         Box(
             Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = smooth(0.20f, 0.62f, progress.value) }
+                .graphicsLayer { alpha = smooth(0.05f, 0.50f, progress.value) }
                 .background(
-                    Brush.verticalGradient(listOf(Color(0xFF0B0A09), Color(0xFF1B1512)))
+                    Brush.verticalGradient(
+                        listOf(Color(0xFFFFFBF3), Color(0xFFF6E9D7), Color(0xFFF0E1CC))
+                    )
                 )
         )
 
@@ -65,18 +72,21 @@ fun FlightLayer(
                     )
                     .graphicsLayer {
                         val p = progress.value
-                        // Sirt once kalkar; kapak ancak onun ardindan belirir.
-                        alpha = smooth(0.16f, 0.44f, p)
+                        // Kapak neredeyse hemen belirir; sirt onun altinda biraz
+                        // daha kalir. Iki alfa ARALIGI BIRBIRINE BOSLUK BIRAKMAYACAK
+                        // sekilde ortusur: hicbir karede "bos ekran" gorunmez.
+                        alpha = smooth(0.06f, 0.38f, p)
 
-                        val t = smooth(0.22f, 0.94f, p)
+                        val t = smooth(0.10f, 0.92f, p)
                         val sx = (start.width / target.width).coerceIn(0.06f, 1f)
                         val sy = (start.height / target.height).coerceIn(0.06f, 1f)
                         transformOrigin = TransformOrigin(0.5f, 0.5f)
                         scaleX = sx + (1f - sx) * t
                         scaleY = sy + (1f - sy) * t
                         translationX = (start.center.x - target.center.x) * (1f - t)
-                        // hafif yay: ortada biraz yukari suzulur, sonra yerine oturur
-                        val lift = sin(t * Math.PI.toFloat()) * 26.dp.toPx()
+                        // hafif yukari suzulme: cok kisa tutuldu ki gecis "yavas"
+                        // degil "hizli ve yumusak" hissedilsin.
+                        val lift = sin(t * Math.PI.toFloat()) * 14.dp.toPx()
                         translationY = (start.center.y - target.center.y) * (1f - t) - lift
                     },
                 corner = 18.dp,
@@ -91,7 +101,9 @@ fun FlightLayer(
                     .offset { IntOffset(start.left.roundToInt(), start.top.roundToInt()) }
                     .graphicsLayer {
                         val p = progress.value
-                        val out = smooth(0.06f, 0.42f, p)
+                        // Sirt, kapak gorunur olana kadar kalir (ustteki alfa ile
+                        // 0.38'e kadar ortusur), sonra yukari suzulup silinir.
+                        val out = smooth(0.20f, 0.52f, p)
                         alpha = 1f - out
                         transformOrigin = TransformOrigin(0.5f, 0.9f)
                         translationY = -26.dp.toPx() * out

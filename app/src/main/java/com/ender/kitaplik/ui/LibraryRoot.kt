@@ -93,6 +93,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
@@ -104,17 +105,23 @@ import com.ender.kitaplik.BuildConfig
 import com.ender.kitaplik.data.BookEntity
 import com.ender.kitaplik.data.BookMetadataSource
 import com.ender.kitaplik.data.RemoteMeta
+import com.ender.kitaplik.data.SearchCandidate
+import com.ender.kitaplik.data.WorkMatcher
 import com.ender.kitaplik.data.normalizeIsbn
 import com.ender.kitaplik.ui.shelf.Bookshelf
 import com.ender.kitaplik.ui.shelf.ShelfBook
 import com.ender.kitaplik.ui.shelf.ShelfRow
 import com.ender.kitaplik.ui.shelf.buildFittedShelves
 import com.ender.kitaplik.ui.shelf.rankMatches
+import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -129,6 +136,14 @@ private data class PendingLookup(
     val checkingEditions: Boolean = false,
     /** Kunye bulunamadiysa sebebi: "kayit yok" mu, "kaynaklara ulasilamadi" mi? */
     val outcome: BookMetadataSource.FetchOutcome? = null
+)
+
+/** Isimle arama oturumu: OCR'dan gelen ad/yazar + cevrimici aday listesi. */
+private data class TitleSearch(
+    val title: String,
+    val author: String,
+    val loading: Boolean,
+    val results: List<SearchCandidate> = emptyList()
 )
 
 private fun Rect.snapped(): Rect = Rect(
@@ -177,13 +192,17 @@ fun LibraryRoot() {
             )
         }
     }
-    val requestExport: () -> Unit = {
+    val requestExportImpl: () -> Unit = {
         exportLauncher.launch("ender-kutuphane-yedek-${backupStamp()}.json")
     }
-    val requestImport: () -> Unit = {
+    val requestExportLatest = rememberUpdatedState(requestExportImpl)
+    val requestExport: () -> Unit = remember { { requestExportLatest.value() } }
+    val requestImportImpl: () -> Unit = {
         // Bazi dosya yoneticileri JSON'u text/plain olarak isaretler.
         importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
     }
+    val requestImportLatest = rememberUpdatedState(requestImportImpl)
+    val requestImport: () -> Unit = remember { { requestImportLatest.value() } }
 
     // Ayarlar sekmesi: kaynak sagligi. Devre kesici dolunca durum otomatik
     // "aktif" olur; 15 sn'de bir yeniden okunur.
@@ -202,6 +221,11 @@ fun LibraryRoot() {
     // bos kaliyordu); yalnizca alfa ile solar. Diger katmanlar kendi alfalari
     // dustugunde atilir. Dokunmayi yalniz tam gorunur (alfa = 1) katman alir.
     val tabAlphas = remember { List(3) { Animatable(if (it == tab) 1f else 0f) } }
+    // Dokunulabilirlik karari tiklama ANINDA okunur (kararli lambda). Parametre
+    // kimligi sabit kaldigi icin sekme gecislerinde "interactive" degisimi
+    // 180 sirtin tamamini yeniden kurmaz (olculen: ~90 ms COMP + ~90 ms GPU).
+    val shelfInteractive: () -> Boolean = remember { { tabAlphas[0].value == 1f } }
+    val listInteractive: () -> Boolean = remember { { tabAlphas[1].value == 1f } }
     val switchTab: suspend (Int) -> Unit = switchTab@{ newTab ->
         if (newTab == tab) return@switchTab
         val oldTab = tab
@@ -214,6 +238,7 @@ fun LibraryRoot() {
     var scannerOpen by rememberSaveable { mutableStateOf(false) }
     var manualEntry by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<PendingLookup?>(null) }
+    var titleSearch by remember { mutableStateOf<TitleSearch?>(null) }
 
     val bounds = remember { mutableStateMapOf<String, Rect>() }
     var flightBook by remember { mutableStateOf<ShelfBook?>(null) }
@@ -236,10 +261,9 @@ fun LibraryRoot() {
     }
     val matchedKeys = remember(searchMatches) { searchMatches.map { it.key }.toSet() }
 
-    val closeSearch: () -> Unit = {
-        searching = false
-        query = ""
-    }
+    val closeSearchImpl: () -> Unit = { searching = false; query = "" }
+    val closeSearchLatest = rememberUpdatedState(closeSearchImpl)
+    val closeSearch: () -> Unit = remember { { closeSearchLatest.value() } }
 
     val target = targetCoverRect()
 
@@ -252,6 +276,9 @@ fun LibraryRoot() {
     val shelfByIsbn = remember(shelfRows) {
         buildMap { shelfRows.forEach { row -> row.books.forEach { if (it.isReal) put(it.key, it) } } }
     }
+    // Yeni kitap eklenince liste yeniden kurulur; coroutine'ler kapanima alinan
+    // bayat haritayi degil her zaman en guncelini okumali.
+    val shelfByIsbnLatest by rememberUpdatedState(shelfByIsbn)
 
     // Raf gorunumu tek bir degismez nesnede toplanir: ucus/detay durumu degistiginde
     // raf alt agaci recompose edilmez (180 sirt yeniden cizilip animasyonu kilitliyordu).
@@ -264,7 +291,7 @@ fun LibraryRoot() {
     }
     val detailBook = detailIsbn?.let { isbn -> books.firstOrNull { it.isbn == isbn } }
 
-    val reveal: (ShelfBook) -> Unit = reveal@{ shelfBook ->
+    val revealImpl: (ShelfBook) -> Unit = reveal@{ shelfBook ->
         if (phase != Phase.Idle) return@reveal
         phase = Phase.Flying
         // Kitap rafdan kalkarken hafif tik: ucusun basladigini hissettirir.
@@ -283,22 +310,39 @@ fun LibraryRoot() {
                     ?.takeIf { it.width > 1f && it.height > 1f }
                     ?.let { flyStart = it.snapped() }
 
-                // Ilk kare bedava degil: ucus katmani o an kuruluyor ve kapak dosyadan
-                // cozuluyor. Animasyonu hemen baslatirsak bu is tek karede birikip
-                // progress'i 0'dan ~0.9'a firlatiyor (gorsel: sicrama). Iki kare bekle:
-                // takilma p=0 iken (kapak henuz alfa 0) yasanir, sonra akici baslar.
+                // KAPAK ON-YUKLEME: Coil dosyayi diskten cozmeden ucus baslamasin.
+                // Ucus katmani AsyncImage ile kapagi cizer; eger cozum henuz
+                // bitmediyse ilk karelerde kutu bos kaliyordu -> siyah ekran.
+                // Boylece ucusun ILK karesinde kapak gercekten hazirdir.
+                shelfBook.entity?.coverPath?.let { path ->
+                    val req = ImageRequest.Builder(appContext)
+                        .data(File(path))
+                        .size(
+                            target.width.roundToInt().coerceAtLeast(1),
+                            target.height.roundToInt().coerceAtLeast(1)
+                        )
+                        .build()
+                    runCatching { appContext.imageLoader.execute(req) }
+                }
+
                 progress.snapTo(0f)
                 withFrameNanos { }
-                withFrameNanos { }
                 flightArmed = true
+                // Kunye icerigini ucusun BASINDA, gorunmez halde kur: metin olcumu +
+                // kapak yerlesimi (~55 ms COMP + ~57 ms layout) ucus perdesinin
+                // arkasinda odenir; kapak yerine otururken takinti kalmaz, icerik
+                // yalnizca alfa ile yumusak girer (BookDetailLayer: visible=false iken
+                // butun katmanlar alfa 0'dir, hicbir sey cizilmez).
+                detailIsbn = shelfBook.key
                 progress.animateTo(
                     targetValue = 1f,
+                    // 900 ms cok yavasti ("1 sn siyah ekran" hissi). 320 ms + yumusak
+                    // cikis: hizli ama carpma yok.
                     animationSpec = tween(
-                        durationMillis = 900,
-                        easing = CubicBezierEasing(0.18f, 0.86f, 0.10f, 1f)
+                        durationMillis = 320,
+                        easing = CubicBezierEasing(0.20f, 0.90f, 0.25f, 1f)
                     )
                 )
-                detailIsbn = shelfBook.key
                 detailVisible = true
                 phase = Phase.Detail
             } catch (_: CancellationException) {
@@ -316,24 +360,31 @@ fun LibraryRoot() {
 
     // Rafin ucus sirasinda recompose olmamasi icin lambda kimlikleri sabitlenir.
     // (Aksi halde 180 sirtin tamami yeniden cizilir ve animasyonun ilk karesi kilitlenir.)
-    val revealLatest = rememberUpdatedState<(ShelfBook) -> Unit>(reveal)
-    val stableReveal: (ShelfBook) -> Unit = remember { { b -> revealLatest.value(b) } }
+    // NOT: Bu sabitleme yalniz raf icin degil; reveal/dismiss/removeBook/handleScan
+    // gibi govde icinde yeniden uretilen tum geri cagirmalar icin gecerli. Kimligi
+    // degisen her lambda, onu tasiyan alt agacin (raf basligi, kitap listesi,
+    // kunye) "atlanamaz" olmasina ve her durum yaziminda yeniden kurulmasina yol
+    // aciyordu: olculen maliyet ~50-65 ms yeniden kurulum + ~50 ms yeniden yerlesim.
+    val revealLatest = rememberUpdatedState(revealImpl)
+    val reveal: (ShelfBook) -> Unit = remember { { b -> revealLatest.value(b) } }
     val stableBounds: (ShelfBook, Rect) -> Unit = remember {
         { b, r -> bounds[b.key] = r }
     }
 
-    val dismiss: () -> Unit = dismiss@{
+    val dismissImpl: () -> Unit = dismiss@{
         if (phase != Phase.Detail) return@dismiss
         phase = Phase.Closing
         // Kapanista ucus katmani devralir; armed olmali yoksa katman hic cizilmez.
         flightArmed = true
         animJob = scope.launch {
             detailVisible = false
-            delay(150)
+            // Yapay bekleme yoktu (eski kod 150 ms "delay" ile kapanisi geciktiriyordu).
+            // Ucusun zemini artik detay zeminiyle ayni krem tonunda oldugundan
+            // devir anliktir; kapak da zaten yerinde durur.
             try {
                 progress.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = 440, easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
                 )
             } catch (_: CancellationException) {
             } finally {
@@ -345,9 +396,11 @@ fun LibraryRoot() {
             }
         }
     }
+    val dismissLatest = rememberUpdatedState(dismissImpl)
+    val dismiss: () -> Unit = remember { { dismissLatest.value() } }
 
     // Kitapligi temizleme: detay kapanir, kayit silinir, 4 sn "Geri al" sunulur.
-    val removeBook: (BookEntity) -> Unit = remove@{ entity ->
+    val removeBookImpl: (BookEntity) -> Unit = remove@{ entity ->
         if (phase != Phase.Detail) return@remove
         dismiss()
         scope.launch {
@@ -364,8 +417,10 @@ fun LibraryRoot() {
             }
         }
     }
+    val removeBookLatest = rememberUpdatedState(removeBookImpl)
+    val removeBook: (BookEntity) -> Unit = remember { { e -> removeBookLatest.value(e) } }
 
-    val handleScan: (String) -> Unit = { raw ->
+    val handleScanImpl: (String) -> Unit = { raw ->
         val isbn = normalizeIsbn(raw)
         if (isbn == null) {
             scope.launch { snackbarHost.showSnackbar("Bu barkod bir kitap ISBN'i değil") }
@@ -408,11 +463,15 @@ fun LibraryRoot() {
             }
         }
     }
+    val handleScanLatest = rememberUpdatedState(handleScanImpl)
+    val handleScan: (String) -> Unit = remember { { s -> handleScanLatest.value(s) } }
 
     BackHandler(
-        enabled = phase != Phase.Idle || scannerOpen || pending != null || manualEntry || searching
+        enabled = phase != Phase.Idle || scannerOpen || pending != null || manualEntry ||
+            searching || titleSearch != null
     ) {
         when {
+            titleSearch != null -> titleSearch = null
             searching -> closeSearch()
             pending != null -> pending = null
             manualEntry -> manualEntry = false
@@ -467,7 +526,22 @@ fun LibraryRoot() {
                     Column(
                         Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = tabAlphas[0].value }
+                            .graphicsLayer {
+                                // Kunye acikken raf tamamen kapatilir: detay zemini zaten
+                                // opak oldugu icin rafin cizimi saf israfti (olcu: GPU
+                                // 17 ms -> 3 ms, Slow issue draw commands 6/6 -> 1/6).
+                                // Alfa 0 = alt agac hic cizilmez; yeniden kurulum da olmaz.
+                                // Ucus perdesi opaklastiginda da ayni sebep gecerli:
+                                // perde p=0.50'de tam opak oldugu icin raf gorunmuyor.
+                                // (Esik, FlightLayer'daki smooth(0.05f, 0.50f, p) ile
+                                // birebir ayni olmali; aksi halde raf, perde %100
+                                // opaklasmadan gorunur/gorunmez titremesi yapar.)
+                                alpha = when {
+                                    detailVisible -> 0f
+                                    flightArmed && progress.value > 0.50f -> 0f
+                                    else -> tabAlphas[0].value
+                                }
+                            }
                     ) {
                         ShelfHeader(
                             realCount = books.size,
@@ -506,8 +580,9 @@ fun LibraryRoot() {
                             visual = shelfVisual,
                             // Raf tamamen gorunurken dokunulabilir; baska sekmedeyken
                             // alfa 0 olsa bile dokunmayi alttaki sirlar almasin.
-                            interactive = tabAlphas[0].value == 1f,
-                            onReveal = stableReveal,
+                            // Karar tiklama aninda okunur -> parametre kimligi sabit.
+                            interactive = shelfInteractive,
+                            onReveal = reveal,
                             onBounds = stableBounds
                         )
                     }
@@ -518,8 +593,8 @@ fun LibraryRoot() {
                         BookListTab(
                             books = books,
                             // Liste tamamen oturunca dokunulabilir; solma sirasinda
-                            // dokunmalar gecisi bolmesin.
-                            interactive = tabAlphas[1].value == 1f,
+                            // dokunmalar gecisi bolmesin. Karar tiklama aninda okunur.
+                            interactive = listInteractive,
                             onBookClick = { entity ->
                                 scope.launch {
                                     // Listeden rafa donuste solma yok: secilen kitap
@@ -595,7 +670,19 @@ fun LibraryRoot() {
                     scannerOpen = false
                     manualEntry = true
                 },
-                onIsbn = handleScan
+                onIsbn = handleScan,
+                onTitleSearch = { title, author ->
+                    // Tarayici kapanir, isimle arama baslar; sonuc paneli acilir.
+                    scannerOpen = false
+                    val session = TitleSearch(title = title, author = author, loading = true)
+                    titleSearch = session
+                    scope.launch {
+                        val results = vm.searchByTitle(title, author)
+                        titleSearch = titleSearch
+                            ?.takeIf { it.title == session.title && it.loading }
+                            ?.copy(loading = false, results = results)
+                    }
+                }
             )
         }
 
@@ -629,6 +716,64 @@ fun LibraryRoot() {
                 }
             )
         }
+
+        titleSearch?.let { search ->
+            // Rafta ayni eser varsa (baski farki olabilir) oncelikle orada gosterilir.
+            val localMatches = remember(books, search.title, search.author) {
+                books.filter {
+                    WorkMatcher.sameWork(search.title, search.author, it.title, it.authors)
+                }
+            }
+            val libraryIsbns = remember(books) { books.mapTo(HashSet()) { b -> b.isbn } }
+            TitleSearchSheet(
+                state = search,
+                localMatches = localMatches,
+                libraryIsbns = libraryIsbns,
+                onDismiss = { titleSearch = null },
+                onOpenLocal = { entity ->
+                    titleSearch = null
+                    tab = 0
+                    scope.launch {
+                        delay(220)
+                        shelfByIsbnLatest[entity.isbn]?.let(reveal)
+                    }
+                },
+                onPick = { candidate ->
+                    val existing = books.firstOrNull { it.isbn == candidate.isbn }
+                    titleSearch = null
+                    scope.launch {
+                        if (existing != null) {
+                            tab = 0
+                            delay(220)
+                            shelfByIsbnLatest[existing.isbn]?.let(reveal)
+                        } else {
+                            // Prefill yok: tam kunye ISBN'den cekilir.
+                            val added = vm.add(candidate.isbn)
+                            // Snackbar kendi coroutine'inde: showSnackbar ~4 sn
+                            // askiya alir, reveal'i geciktiriyordu.
+                            scope.launch {
+                                snackbarHost.showSnackbar(
+                                    if (added) "Rafa eklendi" else "Bu kitap zaten kütüphanede"
+                                )
+                            }
+                            if (added) {
+                                tab = 0
+                                // Sirtin ekran koordinati olusana kadar bekle.
+                                var waited = 0
+                                while (waited < 1500 &&
+                                    (bounds[candidate.isbn]?.width ?: 0f) <= 1f
+                                ) {
+                                    delay(50)
+                                    waited += 50
+                                }
+                                delay(60)
+                                shelfByIsbnLatest[candidate.isbn]?.let(reveal)
+                            }
+                        }
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -647,7 +792,7 @@ private data class ShelfVisual(
 @Composable
 private fun ColumnScope.ShelfSection(
     visual: ShelfVisual,
-    interactive: Boolean,
+    interactive: () -> Boolean,
     onReveal: (ShelfBook) -> Unit,
     onBounds: (ShelfBook, Rect) -> Unit
 ) {
@@ -902,7 +1047,7 @@ private fun navColors() = NavigationBarItemDefaults.colors(
 private fun BookListTab(
     books: List<BookEntity>,
     onBookClick: (BookEntity) -> Unit,
-    interactive: Boolean = true,
+    interactive: () -> Boolean = { true },
     modifier: Modifier = Modifier
 ) {
     if (books.isEmpty()) {
@@ -936,7 +1081,7 @@ private fun BookListTab(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable(enabled = interactive) { onBookClick(book) }
+                    .clickable { if (interactive()) onBookClick(book) }
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1278,3 +1423,226 @@ private fun fallbackStart(target: Rect): Rect = Rect(
     right = target.center.x + target.width * 0.07f,
     bottom = target.center.y + target.height * 0.16f
 )
+
+/**
+ * Isimle arama sonuclari paneli:
+ *  - "Rafta": ayni eserin kutuphanedeki baskilari (baski farki olabilir)
+ *  - "Veritabaninda": cevrimici adaylar; secilince rafa eklenir.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TitleSearchSheet(
+    state: TitleSearch,
+    localMatches: List<BookEntity>,
+    libraryIsbns: Set<String>,
+    onDismiss: () -> Unit,
+    onOpenLocal: (BookEntity) -> Unit,
+    onPick: (SearchCandidate) -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.outline) }
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 28.dp)
+                .padding(bottom = 40.dp)
+        ) {
+            Text(
+                text = "\u201C${state.title}\u201D i\u00E7in sonu\u00E7lar",
+                style = MaterialTheme.typography.headlineSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (state.author.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = state.author,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.height(18.dp))
+
+            if (state.loading) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = "Aran\u0131yor\u2026",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            if (localMatches.isNotEmpty()) {
+                Text(
+                    text = "Rafta",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(10.dp))
+                localMatches.forEach { book ->
+                    ResultCard(
+                        cover = {
+                            BookCover(
+                                book = book,
+                                modifier = Modifier
+                                    .width(52.dp)
+                                    .aspectRatio(2f / 3f),
+                                corner = 6.dp,
+                                compact = true
+                            )
+                        },
+                        title = book.title,
+                        authors = book.authors,
+                        line = listOfNotNull(
+                            book.publisher.takeIf { it.isNotBlank() },
+                            "ISBN ${book.isbn}"
+                        ).joinToString(" \u00B7 "),
+                        badge = null,
+                        onClick = { onOpenLocal(book) }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            if (!state.loading) {
+                Text(
+                    text = "Veritaban\u0131nda",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(10.dp))
+                if (state.results.isEmpty() && localMatches.isEmpty()) {
+                    Text(
+                        text = "Sonu\u00E7 bulunamad\u0131. Ad\u0131 d\u00FCzelterek tekrar deneyebilirsin.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                state.results.forEach { candidate ->
+                    ResultCard(
+                        cover = { CandidateCover(candidate) },
+                        title = candidate.title,
+                        authors = candidate.authors,
+                        line = listOfNotNull(
+                            candidate.publisher.takeIf { it.isNotBlank() },
+                            candidate.publishedDate.takeIf { it.isNotBlank() },
+                            "ISBN ${candidate.isbn}"
+                        ).joinToString(" \u00B7 "),
+                        badge = if (candidate.isbn in libraryIsbns) "K\u00FCt\u00FCphanende" else null,
+                        onClick = { onPick(candidate) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Ortak sonuc karti: kapak + baslik + yazar + kunye satiri (+ istege bagli rozet). */
+@Composable
+private fun ResultCard(
+    cover: @Composable () -> Unit,
+    title: String,
+    authors: String,
+    line: String,
+    badge: String?,
+    onClick: () -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onClick() }
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            cover()
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (authors.isNotBlank()) {
+                    Text(
+                        text = authors,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (line.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (badge != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.primary)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+}
+
+/** Aday kapagi: URL'den yuklenir; kapak yoksa adin ilk harfinden sade bir levha. */
+@Composable
+private fun CandidateCover(candidate: SearchCandidate) {
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        Modifier
+            .width(52.dp)
+            .aspectRatio(2f / 3f)
+            .clip(shape)
+            .background(Color(0xFF241E19)),
+        contentAlignment = Alignment.Center
+    ) {
+        val url = candidate.coverUrl
+        if (url != null) {
+            AsyncImage(
+                model = url,
+                contentDescription = candidate.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(
+                text = candidate.title.firstOrNull()?.uppercase() ?: "?",
+                style = MaterialTheme.typography.titleLarge,
+                color = Color(0xFFB08968)
+            )
+        }
+    }
+}

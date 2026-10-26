@@ -1,5 +1,7 @@
 package com.ender.kitaplik.ui
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -21,11 +23,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,9 +40,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,13 +55,22 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ender.kitaplik.data.BookEntity
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -76,27 +93,37 @@ fun BookDetailLayer(
 
     val contentAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = if (visible) 260 else 120),
+        animationSpec = tween(durationMillis = if (visible) 180 else 90),
         label = "detailContentAlpha"
     )
-    // Icerik alfasi yumusak gecis, konumu ise yay ile yerine oturur: acilista
-    // asagidan hafif yukari sicrar (kapanista duzgun geri iner).
-    val contentSpring by animateFloatAsState(
+    // Icerik asagidan DUSMEYEN (yaylanmayan) duzgun bir kayma ile gelir.
+    // Eski kod dampingRatio=0.82 ile hafif asiri sicratiyordu -> "akici degil"
+    // hissi. Simdi tek yonlu, hizli, yumusak.
+    val contentSlide by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.82f, stiffness = 220f),
-        label = "detailContentSpring"
+        animationSpec = tween(
+            durationMillis = if (visible) 220 else 140,
+            easing = FastOutSlowInEasing
+        ),
+        label = "detailContentSlide"
     )
-    val backdrop by animateFloatAsState(
+    // Zemin ucus katmani tarafindan zaten krem rengine doldurulmus oldugu icin
+    // acilista beklemeden gelir; kapanista hizlica silinir.
+    // NOT: Acilis ANLIK okunur (animasyon beklemez): kunye ucus ortasinda onceden
+    // kuruldugu icin, acilis karesinde zemin/kapak daha 0'dayken ucus katmani
+    // kaybolursa tek karelik siyah flash olurdu.
+    val backdropOut by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(260),
-        label = "detailBackdrop"
+        animationSpec = tween(durationMillis = 180),
+        label = "detailBackdropOut"
     )
+    val backdrop = if (visible) 1f else backdropOut
     // Kapak, ucus tamamlandiginda ANINDA gorunur (yer degistirmeden dikissiz gecis),
     // kapanirken ise hizla silinir ki ucus animasyonu gorunur olsun.
-    val coverAlpha = animateFloatAsState(
+    val coverOut by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = if (visible) 0 else 80),
-        label = "detailCoverAlpha"
+        animationSpec = tween(durationMillis = 80),
+        label = "detailCoverOut"
     )
 
     val infoTopPx = target.bottom + with(density) { 24.dp.toPx() }
@@ -104,7 +131,82 @@ fun BookDetailLayer(
         (screenHeightPx - infoTopPx - with(density) { 28.dp.toPx() }.toFloat()).toDp()
     }
 
-    Box(Modifier.fillMaxSize()) {
+    // ---- Asagi surukleyerek kapatma ----
+    // Icerik listesi tepedeyken asagi cekilince kunye parmagi takip eder;
+    // yeterince asagida birakilirsa (ya da hizlica suruklenirse) kunye kapanir.
+    // X dugmesine bagli degildir, X kalir ama tek yol degildir.
+    var dragY by remember { mutableStateOf(0f) }
+    val scrollState = rememberScrollState()
+    val currentOnClose by rememberUpdatedState(onClose)
+    val settleScope = rememberCoroutineScope()
+
+    suspend fun settle(velocityY: Float) {
+        val thresholdPx = with(density) { 130.dp.toPx() }
+        val flingPx = with(density) { 1400.dp.toPx() }
+        if (dragY > thresholdPx || velocityY > flingPx) {
+            currentOnClose()
+        } else {
+            animate(
+                initialValue = dragY,
+                targetValue = 0f,
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f)
+            ) { value, _ -> dragY = value }
+        }
+    }
+
+    val nestedConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                // Surukleme mesafesi acikken geri birakilirsa once onu kapat.
+                if (dragY > 0f && available.y < 0f) {
+                    val take = minOf(-available.y, dragY)
+                    dragY -= take
+                    return Offset(0f, -take)
+                }
+                // Liste tepedeyken asagi cekme kunyeyi tasir; liste asagida
+                // olsaydi bu kaydirma normal scroll'a birakilirdi.
+                if (available.y > 0f && scrollState.value == 0) {
+                    dragY += available.y
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                settle(available.y)
+                return Velocity.Zero
+            }
+        }
+    }
+
+    // Kapanistan kisa sure sonra surukleme mesafesi sifirlanir; yeniden acilista
+    // kunye yanlis konumda dogmaz.
+    LaunchedEffect(visible) {
+        if (!visible) {
+            delay(420)
+            dragY = 0f
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .offset { IntOffset(0, dragY.roundToInt()) }
+            .nestedScroll(nestedConnection)
+            // Kapak/zemin ustunde baslayan (kaydirma olmayan) suruklemeler de
+            // kunyeyi tasinir; dokunma olaylarini tuketerek alttakilerden ayirir.
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = { settleScope.launch { settle(0f) } },
+                    onDragCancel = { settleScope.launch { settle(0f) } },
+                    onVerticalDrag = { change, amount ->
+                        change.consume()
+                        dragY = (dragY + amount).coerceAtLeast(0f)
+                    }
+                )
+            }
+    ) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -139,7 +241,7 @@ fun BookDetailLayer(
                 )
         )
 
-        val coverAlphaNow = coverAlpha.value
+        val coverAlphaNow = if (visible) 1f else coverOut
 
         // Kapagin altindaki ince golge. GPU golge katmani (shadowElevation)
         // animasyonda kare kilitledigi icin yumusak radyal karartma kullanildi.
@@ -173,7 +275,10 @@ fun BookDetailLayer(
                     height = with(density) { target.height.toDp() }
                 )
                 .graphicsLayer { alpha = coverAlphaNow },
-            corner = 18.dp
+            corner = 18.dp,
+            // Animasyon sirasinda subcomposition pahali: kapak zaten on-yuklendigi
+            // icin duz AsyncImage yeter.
+            subcompose = false
         )
 
         Column(
@@ -181,12 +286,12 @@ fun BookDetailLayer(
                 .offset { IntOffset(0, infoTopPx.roundToInt()) }
                 .fillMaxWidth()
                 .heightIn(min = 0.dp, max = infoMaxHeightDp.coerceAtLeast(80.dp))
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .navigationBarsPadding()
                 .padding(horizontal = 30.dp)
                 .graphicsLayer {
                     alpha = contentAlpha
-                    translationY = (1f - contentSpring) * 26.dp.toPx()
+                    translationY = (1f - contentSlide) * 16.dp.toPx()
                 }
         ) {
             Text(
@@ -215,7 +320,7 @@ fun BookDetailLayer(
             MetaRow("Yayınevi", book.publisher)
             MetaRow("Basım", book.publishedDate)
             MetaRow("Sayfa", if (book.pageCount > 0) "${book.pageCount}" else "")
-            MetaRow("ISBN", book.isbn)
+            MetaRow("ISBN", book.isbn, trailing = { IsbnCopyButton(book.isbn) })
 
             if (book.description.isNotBlank()) {
                 Spacer(Modifier.height(20.dp))
@@ -277,7 +382,7 @@ fun BookDetailLayer(
                 .size(44.dp)
                 .graphicsLayer {
                     alpha = contentAlpha
-                    translationY = (1f - contentSpring) * 26.dp.toPx()
+                    translationY = (1f - contentSlide) * 16.dp.toPx()
                 }
                 .clip(RoundedCornerShape(50))
                 .background(Color(0x14000000))
@@ -360,13 +465,18 @@ private fun MissingMetaBadge(onRetry: () -> Unit) {
 }
 
 @Composable
-private fun MetaRow(label: String, value: String) {
+private fun MetaRow(
+    label: String,
+    value: String,
+    trailing: (@Composable () -> Unit)? = null
+) {
     if (value.isBlank()) return
     Row(
         Modifier
             .fillMaxWidth()
             .padding(vertical = 5.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
@@ -378,7 +488,36 @@ private fun MetaRow(label: String, value: String) {
             text = value,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (trailing != null) trailing()
+    }
+}
+
+/** ISBN'i panoya kopyalar; kisa sureli onay simgesi gosterir. */
+@Composable
+private fun IsbnCopyButton(value: String) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1600)
+            copied = false
+        }
+    }
+    IconButton(
+        onClick = {
+            clipboard.setText(AnnotatedString(value))
+            copied = true
+        },
+        modifier = Modifier.size(34.dp)
+    ) {
+        Icon(
+            imageVector = if (copied) Icons.Rounded.Check else Icons.Rounded.ContentCopy,
+            contentDescription = if (copied) "Kopyalandı" else "ISBN'i kopyala",
+            tint = if (copied) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

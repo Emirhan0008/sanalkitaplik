@@ -1,25 +1,33 @@
-# Ender Kütüphane — Telefon Kurulumu
+# Ender Kütüphane — Telefon Kurulumu (Play Dahili Test)
 
-Bu dosya APK'yı telefonuna kuracak kişi içindir.
+Uygulama Google Play'de **dahili test** olarak yayında. APK dosyası göndermene
+gerek yok — arkadaşın linkle katılıyor, sonrası Play'den otomatik.
 
-## Kurulum
+## Arkadaşın yapması gerekenler (tek seferlik)
 
-1. `app-release.apk` dosyasını telefonuna at (WhatsApp/Telegram/Drive/USB — hepsi olur).
-2. Dosyaya dokun → "Bilinmeyen kaynaklardan yükleme" izni isterse bir kez onayla.
-3. Kurulum biter, uygulamayı aç.
+1. Telefonundan bu bağlantıyı aç:
+   **https://play.google.com/apps/internaltest/4699951502213476742**
+2. "Dahili testi kabul et"e dokun → "Uygulamayı test et" / Play'de aç.
+3. "Ender Kütüphane" sayfasında **Kaydol** → **Yükle**. Bitti.
 
-## Bilmen gerekenler
+> Gmail adresinin Play Console'daki tester listesinde ("Testerlar") kayıtlı
+> olması gerekir. Liste: Play Console → Ender Kütüphane → Test edin ve
+> yayınlayın → Test etme → Dahili test → Test kullanıcıları.
 
-- **API anahtarı APK'nın içinde gömülü** — hiçbir şey girmene gerek yok.
-  Uygulama internet olursa Google Books + Open Library'den künye çeker.
-- Kütüphanen **telefonuna özel**, boş başlar. Barkod okut veya kapaktan
-  isim/yazar aratarak kitap ekleyebilirsin.
-- Yeni sürüm çıkınca sana **yeni bir APK** gönderilecek; üzerine kurunca
-  kitapların silinmez, uygulama güncellenir.
+## Bundan sonrası (canlı güncelleme)
 
-## Sorun çıkarsa
+- Yeni sürüm çıktığında sen Play Console'a yüklüyorsun; arkadaşının telefonu
+  Play'in otomatik güncellemesiyle **kendi kendine** günceller.
+- Kitaplar telefonunda durur, güncellemede silinmez.
 
-- "Uygulama yüklenemedi" → Ayarlar → Uygulamalar → yüklemeye çalıştığın
-  uygulamaya "bilinmeyen kaynakları yükle" izni ver, tekrar dene.
-- Android 14+ bazen "Bu uygulama kötü amaçlı olabilir" uyarısı gösterir:
-  "Yine de yükle" seçeneği çıkar, onayla yeter.
+## Sürüm çıkarma tarifesi (geliştirici notu)
+
+1. `app/build.gradle.kts` içinde `versionCode` +1, `versionName` artır.
+2. `.\gradlew.bat :app:bundleRelease`
+3. `gplay release --package com.ender.kitaplik --track internal --bundle <aab> --release-notes "..."`
+   (tam yol: yeni edit → yükle → track → commit)
+
+## Notlar
+
+- API anahtarı APK'nın içinde gömülü — hiçbir şey girmesine gerek yok.
+- Uygulama çevrimdışı çalışır; internet yalnızca künye çekmek için gerekir.

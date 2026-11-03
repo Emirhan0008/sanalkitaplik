@@ -7,12 +7,22 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-// local.properties (git'e girmez) icinden Google Books API anahtari
+// local.properties (git'e girmez) icinden Google Books API anahtari.
+// Build ortaminda GBOOKS_KEY env degiskeni atanirsa onu oncelikli okur,
+// yoksa local.properties'tan fallback okur. Anahtar BuildConfig'e gomulur,
+// boylece APK'yi kuran herkes anahtari otomatik alir.
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
-val gbooksKey: String = localProps.getProperty("gbooks.key", "").trim()
+val gbooksKey: String = (System.getenv("GBOOKS_KEY") ?: localProps.getProperty("gbooks.key", "")).trim()
+
+// Release imzalama: keystore.properties (git'e girmez) varsa kullanilir;
+// yoksa release imzasiz kalir (derleme yine basarili olur).
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
 
 android {
     namespace = "com.ender.kitaplik"
@@ -29,9 +39,21 @@ android {
         buildConfigField("String", "GBOOKS_KEY", "\"$gbooksKey\"")
     }
 
+    signingConfigs {
+        if (keystoreProps.isNotEmpty()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

@@ -26,12 +26,13 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.ender.kitaplik"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.ender.kitaplik"
         minSdk = 26
-        targetSdk = 35
+        // Play, 31.08.2026'dan itibaren yeni uygulamalarda en az targetSdk 36 istiyor.
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
